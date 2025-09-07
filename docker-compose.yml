@@ -2,12 +2,19 @@ version: '3.8'
 
 services:
   discord-bot:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
     container_name: discord-bot
     restart: unless-stopped
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - NODE_ENV=production
+    # Für persistente Daten (falls benötigt)
+    volumes:
+      - ./data:/app/data
+    # Leistungsoptimierungen
     mem_limit: 512m
     cpus: 1
 
-# Nicht networks section notwendig
+# Netzwerk konfigurieren (nicht notwendig, aber gut für Erweiterungen)
