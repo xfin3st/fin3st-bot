@@ -53,3 +53,29 @@ for (const file of eventFiles) {
 
 // Verbindung herstellen
 client.login(process.env.DISCORD_TOKEN);
+
+// NACH client.login() - Befehle automatisch registrieren
+client.once('clientReady', async () => {
+    try {
+        console.log('🔄 Starte Befehlsregistrierung...');
+        
+        const commands = [];
+        const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+
+        for (const file of commandFiles) {
+            const command = require(path.join(commandsPath, file));
+            commands.push(command.data.toJSON());
+        }
+
+        // Global registrieren (dauert bis zu 1 Stunde)
+        await client.application.commands.set(commands);
+        
+        // ODER für einen bestimmten Server (sofort) - Einen auskommentieren!
+        // const guild = client.guilds.cache.get(process.env.GUILD_ID);
+        // await guild.commands.set(commands);
+
+        console.log(`✅ ${commands.length} Befehle registriert!`);
+    } catch (error) {
+        console.error('❌ Fehler beim Registrieren:', error);
+    }
+});
