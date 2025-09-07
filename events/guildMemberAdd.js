@@ -55,7 +55,7 @@ module.exports = {
         // Private Nachricht an das neue Mitglied senden
         try {
             await member.send({
-                content: `Hey ${member.user.username}, willkommen auf **${member.guild.name}**!\\n\\n` +
+                content: `Hey ${member.user.username}, willkommen auf **${member.guild.name}**!` +
                          `Wir freuen uns, dich dabei zu haben. ` +
                          `Vergiss nicht, die Regeln durchzulesen und dich vorzustellen!`
             });
