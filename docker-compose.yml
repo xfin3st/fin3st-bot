@@ -16,5 +16,14 @@ services:
     # Leistungsoptimierungen
     mem_limit: 512m
     cpus: 1
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 # Netzwerk konfigurieren (nicht notwendig, aber gut für Erweiterungen)
+networks:
+  default:
+    name: discord-bot-network
