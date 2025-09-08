@@ -42,6 +42,12 @@ module.exports = {
                 else if (interaction.customId === 'close_ticket') {
                     await handleTicketClose(interaction);
                 }
+                else if (interaction.customId === 'support_close_ticket') {
+                    await handleSupportCloseTicket(interaction);
+                }
+                else if (interaction.customId === 'claim_ticket') {
+                    await handleClaimTicket(interaction);
+                }
             } catch (error) {
                 console.error('❌ Fehler bei Button-Interaktion:', error);
                 if (interaction.replied || interaction.deferred) {
@@ -81,20 +87,27 @@ async function handleTicketCreation(interaction) {
             name: `ticket-${interaction.user.username}-${ticketNumber}`.toLowerCase(),
             type: ChannelType.GuildText,
             permissionOverwrites: [
+                // @everyone - KEINE Rechte (standardmäßig alle verweigern)
                 {
-                    id: interaction.guild.id,
-                    deny: [PermissionsBitField.Flags.ViewChannel]
+                    id: interaction.guild.id, // @everyone
+                    deny: [
+                        PermissionsBitField.Flags.ViewChannel,
+                        PermissionsBitField.Flags.SendMessages,
+                        PermissionsBitField.Flags.ReadMessageHistory
+                    ]
                 },
+                // Ticket Ersteller - VOLLER Zugriff
                 {
                     id: interaction.user.id,
                     allow: [
                         PermissionsBitField.Flags.ViewChannel,
                         PermissionsBitField.Flags.SendMessages,
                         PermissionsBitField.Flags.ReadMessageHistory,
-                        PermissionsBitField.Flags.AttachFiles
+                        PermissionsBitField.Flags.AttachFiles,
+                        PermissionsBitField.Flags.EmbedLinks
                     ]
                 },
-                // Add bot permissions
+                // Bot - ADMIN Rechte
                 {
                     id: interaction.client.user.id,
                     allow: [
@@ -102,46 +115,79 @@ async function handleTicketCreation(interaction) {
                         PermissionsBitField.Flags.SendMessages,
                         PermissionsBitField.Flags.ReadMessageHistory,
                         PermissionsBitField.Flags.ManageChannels,
-                        PermissionsBitField.Flags.ManageMessages
+                        PermissionsBitField.Flags.ManageMessages,
+                        PermissionsBitField.Flags.EmbedLinks,
+                        PermissionsBitField.Flags.AttachFiles
                     ]
-                }
+                },
+                // Support Rolle - VOLLER Zugriff (wenn definiert)
+                ...(process.env.SUPPORT_ROLE_ID ? [{
+                    id: process.env.SUPPORT_ROLE_ID,
+                    allow: [
+                        PermissionsBitField.Flags.ViewChannel,
+                        PermissionsBitField.Flags.SendMessages,
+                        PermissionsBitField.Flags.ReadMessageHistory,
+                        PermissionsBitField.Flags.ManageMessages,
+                        PermissionsBitField.Flags.EmbedLinks,
+                        PermissionsBitField.Flags.AttachFiles
+                    ]
+                }] : [])
             ],
             topic: `ticket-${interaction.user.id}`
         });
 
         console.log(`Ticket channel created: ${ticketChannel.name}`);
 
-        // Send welcome message FIRST
+        // Send welcome message
         const embed = new EmbedBuilder()
             .setColor(0x5865F2)
             .setTitle('🎫 Support Ticket')
             .setDescription(`Hallo ${interaction.user}, willkommen bei deinem Ticket!\n\nBitte beschreibe dein Anliegen so detailliert wie möglich.`)
             .addFields(
                 { name: 'User', value: `${interaction.user.tag}`, inline: true },
-                { name: 'Erstellt am', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }
+                { name: 'Ticket ID', value: `#${ticketNumber}`, inline: true },
+                { name: 'Erstellt am', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: false },
+                { name: 'Zugriff', value: 'Nur du und das Support-Team können diesen Channel sehen', inline: false }
             )
-            .setFooter({ text: 'Support Team' });
+            .setFooter({ text: 'Unser Support-Team wird sich bald bei dir melden' });
 
-        const closeButton = new ActionRowBuilder().addComponents(
+        // Buttons für verschiedene Aktionen
+        const actionButtons = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('close_ticket')
                 .setLabel('Ticket schließen')
                 .setStyle(ButtonStyle.Danger)
-                .setEmoji('🔒')
+                .setEmoji('🔒'),
+            new ButtonBuilder()
+                .setCustomId('claim_ticket')
+                .setLabel('Ticket übernehmen')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('👋')
+        );
+
+        const supportButtons = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('support_close_ticket')
+                .setLabel('Support schließt Ticket')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('📝')
         );
 
         // Send welcome message to ticket channel
-        await ticketChannel.send({
-            content: `${interaction.user}`,
+        const welcomeMessage = await ticketChannel.send({
+            content: `${interaction.user} ${process.env.SUPPORT_ROLE_ID ? `<@&${process.env.SUPPORT_ROLE_ID}>` : ''}`,
             embeds: [embed],
-            components: [closeButton]
+            components: [actionButtons, supportButtons]
         });
+
+        // Pin die Willkommensnachricht
+        await welcomeMessage.pin();
 
         console.log('Welcome message sent to ticket channel');
 
         // Then reply to the interaction
         await interaction.reply({
-            content: `✅ Dein Ticket wurde erstellt: ${ticketChannel}`,
+            content: `✅ Dein Ticket wurde erstellt: ${ticketChannel}\n**Nur du und das Support-Team können den Channel sehen!**`,
             ephemeral: true
         });
 
@@ -154,7 +200,7 @@ async function handleTicketCreation(interaction) {
     }
 }
 
-// Ticket Close Handler
+// Ticket Close Handler (durch User)
 async function handleTicketClose(interaction) {
     try {
         // Check if this is actually a ticket channel
@@ -165,9 +211,17 @@ async function handleTicketClose(interaction) {
             });
         }
 
+        // Check if user is ticket owner or support
+        const ticketOwnerId = interaction.channel.topic.split('-')[1];
+        if (interaction.user.id !== ticketOwnerId && !interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
+            return await interaction.reply({
+                content: '❌ Nur der Ticket-Ersteller oder Support-Mitglieder können das Ticket schließen!',
+                ephemeral: true
+            });
+        }
+
         await interaction.reply({
             content: '🗑️ Ticket wird in 5 Sekunden geschlossen...',
-            ephemeral: true
         });
         
         setTimeout(async () => {
@@ -182,6 +236,119 @@ async function handleTicketClose(interaction) {
         console.error('Error closing ticket:', error);
         await interaction.reply({
             content: '❌ Fehler beim Schließen des Tickets!',
+            ephemeral: true
+        });
+    }
+}
+
+// Support Close Ticket Handler (durch Support)
+async function handleSupportCloseTicket(interaction) {
+    try {
+        if (!interaction.channel.topic || !interaction.channel.topic.includes('ticket-')) {
+            return await interaction.reply({
+                content: '❌ Dieser Befehl kann nur in Ticket-Channels verwendet werden!',
+                ephemeral: true
+            });
+        }
+
+        // Check if user has support role
+        if (!interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
+            return await interaction.reply({
+                content: '❌ Nur Support-Mitglieder können diesen Befehl verwenden!',
+                ephemeral: true
+            });
+        }
+
+        const embed = new EmbedBuilder()
+            .setColor(0x57F287)
+            .setTitle('✅ Ticket geschlossen')
+            .setDescription(`Das Ticket wurde von ${interaction.user} (Support) geschlossen.`)
+            .addFields(
+                { name: 'Geschlossen von', value: `${interaction.user.tag}`, inline: true },
+                { name: 'Geschlossen am', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }
+            )
+            .setFooter({ text: 'Ticket-System' });
+
+        await interaction.reply({ embeds: [embed] });
+        
+        // Entferne alle Buttons nach dem Schließen
+        const disabledButtons = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('close_ticket')
+                .setLabel('Ticket geschlossen')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('✅')
+                .setDisabled(true),
+            new ButtonBuilder()
+                .setCustomId('support_close_ticket')
+                .setLabel('Support geschlossen')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('✅')
+                .setDisabled(true)
+        );
+
+        await interaction.message.edit({ components: [disabledButtons] });
+
+    } catch (error) {
+        console.error('Error with support close:', error);
+        await interaction.reply({
+            content: '❌ Fehler beim Schließen des Tickets!',
+            ephemeral: true
+        });
+    }
+}
+
+// Ticket Claim Handler (Support übernimmt Ticket)
+async function handleClaimTicket(interaction) {
+    try {
+        if (!interaction.channel.topic || !interaction.channel.topic.includes('ticket-')) {
+            return await interaction.reply({
+                content: '❌ Dieser Befehl kann nur in Ticket-Channels verwendet werden!',
+                ephemeral: true
+            });
+        }
+
+        // Check if user has support role
+        if (!interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
+            return await interaction.reply({
+                content: '❌ Nur Support-Mitglieder können Tickets übernehmen!',
+                ephemeral: true
+            });
+        }
+
+        const embed = new EmbedBuilder()
+            .setColor(0xFEE75C)
+            .setTitle('👋 Ticket übernommen')
+            .setDescription(`${interaction.user} (Support) kümmert sich nun um dieses Ticket.`)
+            .addFields(
+                { name: 'Support-Mitarbeiter', value: `${interaction.user.tag}`, inline: true },
+                { name: 'Übernommen am', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }
+            )
+            .setFooter({ text: 'Vielen Dank für deine Hilfe!' });
+
+        await interaction.reply({ embeds: [embed] });
+
+        // Deaktiviere den Claim-Button nach dem Übernehmen
+        const actionButtons = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('close_ticket')
+                .setLabel('Ticket schließen')
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji('🔒'),
+            new ButtonBuilder()
+                .setCustomId('claim_ticket')
+                .setLabel('Bereits übernommen')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('✅')
+                .setDisabled(true)
+        );
+
+        await interaction.message.edit({ components: [actionButtons] });
+
+    } catch (error) {
+        console.error('Error claiming ticket:', error);
+        await interaction.reply({
+            content: '❌ Fehler beim Übernehmen des Tickets!',
             ephemeral: true
         });
     }
