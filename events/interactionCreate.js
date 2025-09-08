@@ -3,38 +3,42 @@ const { Events, ChannelType, PermissionsBitField, EmbedBuilder, ActionRowBuilder
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
-        // Handle Chat Commands
+        console.log(`🔹 Interaction received: ${interaction.type} - ${interaction.isButton() ? interaction.customId : interaction.commandName}`);
+        
+        // Handle Slash Commands
         if (interaction.isChatInputCommand()) {
             const command = interaction.client.commands.get(interaction.commandName);
 
             if (!command) {
-                console.error(`❌ Kein Befehl gefunden für ${interaction.commandName}`);
-                return;
+                console.error(`❌ Kein Befehl gefunden für: ${interaction.commandName}`);
+                return await interaction.reply({ 
+                    content: '❌ Dieser Befehl wurde nicht gefunden!', 
+                    ephemeral: true 
+                });
             }
 
             try {
+                console.log(`✅ Führe Befehl aus: ${interaction.commandName}`);
                 await command.execute(interaction);
             } catch (error) {
-                console.error(`❌ Fehler bei Ausführung von ${interaction.commandName}`);
-                console.error(error);
+                console.error(`❌ Fehler bei Befehl ${interaction.commandName}:`, error);
                 
+                const errorMessage = {
+                    content: '❌ Es gab einen Fehler bei der Ausführung dieses Befehls!',
+                    ephemeral: true
+                };
+
                 if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp({ 
-                        content: '❌ Es gab einen Fehler bei der Ausführung dieses Befehls!', 
-                        ephemeral: true 
-                    });
+                    await interaction.followUp(errorMessage);
                 } else {
-                    await interaction.reply({ 
-                        content: '❌ Es gab einen Fehler bei der Ausführung dieses Befehls!', 
-                        ephemeral: true 
-                    });
+                    await interaction.reply(errorMessage);
                 }
             }
         } 
-        // Handle Button Interactions (TICKET SYSTEM)
+        // Handle Button Interactions
         else if (interaction.isButton()) {
             try {
-                console.log(`Button clicked: ${interaction.customId} by ${interaction.user.tag}`);
+                console.log(`🔘 Button clicked: ${interaction.customId} by ${interaction.user.tag}`);
                 
                 if (interaction.customId === 'create_ticket') {
                     await handleTicketCreation(interaction);
@@ -47,21 +51,30 @@ module.exports = {
                 }
                 else if (interaction.customId === 'claim_ticket') {
                     await handleClaimTicket(interaction);
+                } else {
+                    console.log(`❌ Unbekannter Button: ${interaction.customId}`);
+                    await interaction.reply({
+                        content: '❌ Dieser Button funktioniert nicht mehr!',
+                        ephemeral: true
+                    });
                 }
             } catch (error) {
                 console.error('❌ Fehler bei Button-Interaktion:', error);
+                const errorMessage = {
+                    content: '❌ Diese Interaktion ist fehlgeschlagen!',
+                    ephemeral: true
+                };
+                
                 if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp({
-                        content: '❌ Diese Interaktion ist fehlgeschlagen!',
-                        ephemeral: true
-                    });
+                    await interaction.followUp(errorMessage);
                 } else {
-                    await interaction.reply({
-                        content: '❌ Diese Interaktion ist fehlgeschlagen!',
-                        ephemeral: true
-                    });
+                    await interaction.reply(errorMessage);
                 }
             }
+        }
+        // Handle other interaction types
+        else {
+            console.log(`ℹ️  Unbehandelte Interaktion: ${interaction.type}`);
         }
     },
 };
@@ -105,11 +118,11 @@ async function handleTicketCreation(interaction) {
         const ticketChannel = await interaction.guild.channels.create({
             name: `ticket-${interaction.user.username}-${ticketNumber}`.toLowerCase(),
             type: ChannelType.GuildText,
-            parent: process.env.TICKET_CATEGORY_ID, // DIESE ZEILE IST WICHTIG!
+            parent: process.env.TICKET_CATEGORY_ID,
             permissionOverwrites: [
-                // @everyone - KEINE Rechte (standardmäßig alle verweigern)
+                // @everyone - KEINE Rechte
                 {
-                    id: interaction.guild.id, // @everyone
+                    id: interaction.guild.id,
                     deny: [
                         PermissionsBitField.Flags.ViewChannel,
                         PermissionsBitField.Flags.SendMessages,
@@ -156,7 +169,7 @@ async function handleTicketCreation(interaction) {
             topic: `ticket-${interaction.user.id}`
         });
 
-        console.log(`✅ Ticket channel created in category: ${ticketChannel.name}`);
+        console.log(`✅ Ticket channel created: ${ticketChannel.name}`);
 
         // Send welcome message
         const embed = new EmbedBuilder()
@@ -233,7 +246,7 @@ async function handleTicketClose(interaction) {
 
         // Check if user is ticket owner or support
         const ticketOwnerId = interaction.channel.topic.split('-')[1];
-        if (interaction.user.id !== ticketOwnerId && !interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
+        if (interaction.user.id !== ticketOwnerId && !(process.env.SUPPORT_ROLE_ID && interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID))) {
             return await interaction.reply({
                 content: '❌ Nur der Ticket-Ersteller oder Support-Mitglieder können das Ticket schließen!',
                 ephemeral: true
@@ -272,7 +285,7 @@ async function handleSupportCloseTicket(interaction) {
         }
 
         // Check if user has support role
-        if (!interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
+        if (!process.env.SUPPORT_ROLE_ID || !interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
             return await interaction.reply({
                 content: '❌ Nur Support-Mitglieder können diesen Befehl verwenden!',
                 ephemeral: true
@@ -329,7 +342,7 @@ async function handleClaimTicket(interaction) {
         }
 
         // Check if user has support role
-        if (!interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
+        if (!process.env.SUPPORT_ROLE_ID || !interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
             return await interaction.reply({
                 content: '❌ Nur Support-Mitglieder können Tickets übernehmen!',
                 ephemeral: true
