@@ -1,9 +1,44 @@
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config();
 
-// Erstelle einen neuen Client (OHNE manuelle Cache-Limits)
+// DEBUG: Zeige alle verfügbaren Umgebungsvariablen
+console.log('🔍 Überprüfe Umgebungsvariablen:');
+console.log('DISCORD_TOKEN:', process.env.DISCORD_TOKEN ? '✅ Vorhanden' : '❌ Fehlt');
+console.log('TICKET_CATEGORY_ID:', process.env.TICKET_CATEGORY_ID || '❌ Fehlt');
+console.log('SUPPORT_ROLE_ID:', process.env.SUPPORT_ROLE_ID || '❌ Fehlt');
+console.log('GUILD_ID:', process.env.GUILD_ID || '❌ Fehlt');
+
+// Versuche .env manuell zu laden falls nicht vorhanden
+if (!process.env.DISCORD_TOKEN) {
+    console.log('🔄 Versuche .env manuell zu laden...');
+    try {
+        // Prüfe verschiedene .env Dateien
+        const envPaths = [
+            path.join(__dirname, '.env'),
+            path.join(__dirname, 'stack.env'),
+            '/etc/secrets/.env'
+        ];
+        
+        let envLoaded = false;
+        for (const envPath of envPaths) {
+            if (fs.existsSync(envPath)) {
+                require('dotenv').config({ path: envPath });
+                console.log(`✅ .env geladen von: ${envPath}`);
+                envLoaded = true;
+                break;
+            }
+        }
+        
+        if (!envLoaded) {
+            console.log('⚠️  Keine .env Datei gefunden');
+        }
+    } catch (error) {
+        console.log('❌ Fehler beim Laden von .env:', error.message);
+    }
+}
+
+// Erstelle einen neuen Client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -24,13 +59,12 @@ client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
 try {
     const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-    const loadedCommands = new Set(); // Um Dopplungen zu vermeiden
+    const loadedCommands = new Set();
 
     for (const file of commandFiles) {
         try {
             const command = require(path.join(commandsPath, file));
             
-            // Prüfe auf doppelte Befehlsnamen
             if (loadedCommands.has(command.data.name)) {
                 console.log(`❌ Überspringe doppelten Befehl: ${command.data.name} (in ${file})`);
                 continue;
@@ -74,18 +108,29 @@ try {
     console.log('⚠️  Fehler beim Laden von events:', error.message);
 }
 
-// Verbindung herstellen
-client.login(process.env.DISCORD_TOKEN);
+// Verbindung herstellen MIT Fehlerbehandlung
+client.login(process.env.DISCORD_TOKEN).catch(error => {
+    console.error('❌ FEHLER BEIM LOGIN:', error);
+    console.log('💡 Mögliche Ursachen:');
+    console.log('1. DISCORD_TOKEN ist nicht in der .env Datei');
+    console.log('2 .env Datei ist nicht korrekt formatiert');
+    console.log('3. Bot-Token ist ungültig');
+    process.exit(1);
+});
 
-// NACH client.login() - Befehle automatisch registrieren MIT Fehlerbehandlung
-client.once('clientReady', async () => {
+// NACH client.login() - Befehle automatisch registrieren
+client.once('ready', async () => {
+    console.log(`✅ Bot eingeloggt als ${client.user.tag}`);
+    console.log(`🏠 Guild ID: ${process.env.GUILD_ID}`);
+    console.log(`🎫 Ticket Kategorie: ${process.env.TICKET_CATEGORY_ID}`);
+    console.log(`🛡️ Support Rolle: ${process.env.SUPPORT_ROLE_ID}`);
+    
     try {
         console.log('🔄 Starte Befehlsregistrierung...');
         
         const commands = [];
-        const commandNames = new Set(); // Für Dopplungserkennung
+        const commandNames = new Set();
 
-        // Prüfe ob commands Ordner existiert
         if (fs.existsSync(commandsPath)) {
             const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 
@@ -93,7 +138,6 @@ client.once('clientReady', async () => {
                 try {
                     const command = require(path.join(commandsPath, file));
                     
-                    // Verhindere doppelte Befehlsnamen
                     if (commandNames.has(command.data.name)) {
                         console.log(`❌ Überspringe doppelten Befehl: ${command.data.name}`);
                         continue;
@@ -109,27 +153,37 @@ client.once('clientReady', async () => {
             }
         }
 
-        // ZUERST: Vorhandene Befehle löschen um Dopplungen zu vermeiden
-        await client.application.commands.set([]);
-        console.log('✅ Alte Befehle gelöscht');
-
-        // DANN: Neue Befehle registrieren
+        // Global registrieren
         await client.application.commands.set(commands);
-        
-        console.log(`✅ ${commands.length} Befehle erfolgreich registriert!`);
+        console.log(`✅ ${commands.length} Befehle global registriert!`);
         
     } catch (error) {
-        console.error('❌ Fehler beim Registrieren:', error);
+        console.error('❌ Fehler beim globalen Registrieren:', error);
         
-        // Fallback: Nur für diesen Server registrieren
+        // Fallback: Für spezifischen Server registrieren
         try {
-            const guild = client.guilds.cache.first();
-            if (guild) {
+            if (process.env.GUILD_ID) {
+                const guild = await client.guilds.fetch(process.env.GUILD_ID);
                 await guild.commands.set(commands);
                 console.log(`✅ ${commands.length} Befehle auf Server "${guild.name}" registriert!`);
+            } else {
+                const guild = client.guilds.cache.first();
+                if (guild) {
+                    await guild.commands.set(commands);
+                    console.log(`✅ ${commands.length} Befehle auf Server "${guild.name}" registriert!`);
+                }
             }
         } catch (fallbackError) {
             console.error('❌ Auch Fallback-Registrierung fehlgeschlagen:', fallbackError);
         }
     }
+});
+
+// Error Handling
+client.on('error', (error) => {
+    console.error('❌ Client Error:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+    console.error('❌ Unhandled Rejection:', error);
 });
