@@ -1,30 +1,34 @@
-const { Events } = require('discord.js');
+const { Events, ActivityType } = require('discord.js');
 
 module.exports = {
     name: Events.ClientReady,
     once: true,
     execute(client) {
         console.log(`✅ Eingeloggt als ${client.user.tag}!`);
-        
-        const { Events } = require('discord.js');
+        console.log(`🌐 Bot ist auf ${client.guilds.cache.size} Servern`);
 
-module.exports = {
-    name: Events.ClientReady,
-    once: true,
-    execute(client) {
-        console.log(`✅ Eingeloggt als ${client.user.tag}!`);
-        
-        // Setze den Status des Bots
-        client.user.setActivity('deinem Server', { type: 'WATCHING' });
-        
-         // Standard-Presence beim Start
-  client.user.setPresence({
-    activities: [
-      {
-        name: 'https://fin3st.de 👑', // dein Text hier
-        type: 3               // 0 = Playing, 1 = Streaming, 2 = Listening, 3 = Watching, 5 = Competing
-      }
-    ],
-    status: 'online' // online | idle | dnd | invisible
-    },
+        // Status mit mehr Details
+        const activities = [
+            { name: 'https://fin3st.de 👑', type: ActivityType.Watching },
+            { name: `${client.guilds.cache.size} Servern`, type: ActivityType.Watching },
+            { name: `${client.users.cache.size} Nutzern`, type: ActivityType.Listening }
+        ];
+
+        // Rotierende Statusnachrichten
+        let activityIndex = 0;
+        setInterval(() => {
+            client.user.setActivity(activities[activityIndex]);
+            activityIndex = (activityIndex + 1) % activities.length;
+        }, 30000); // Wechselt alle 30 Sekunden
+
+        // Setze den initialen Status
+        client.user.setPresence({
+            activities: [activities[0]],
+            status: 'online'
+        });
+
+        // Logge weitere Informationen
+        console.log(`📊 Insgesamt ${client.users.cache.size} Nutzer erreichbar`);
+        console.log(`🔄 Bot startete um: ${new Date().toLocaleString('de-DE')}`);
+    }
 };
