@@ -81,11 +81,31 @@ async function handleTicketCreation(interaction) {
     }
 
     try {
-        // Create ticket channel
+        // Check if TICKET_CATEGORY_ID is set
+        if (!process.env.TICKET_CATEGORY_ID) {
+            console.error('❌ TICKET_CATEGORY_ID ist nicht in der .env gesetzt!');
+            return await interaction.reply({
+                content: '❌ Ticket-System ist nicht korrekt konfiguriert. Bitte Admin kontaktieren.',
+                ephemeral: true
+            });
+        }
+
+        // Get the category channel
+        const category = interaction.guild.channels.cache.get(process.env.TICKET_CATEGORY_ID);
+        if (!category) {
+            console.error('❌ Ticket-Kategorie nicht gefunden:', process.env.TICKET_CATEGORY_ID);
+            return await interaction.reply({
+                content: '❌ Ticket-Kategorie nicht gefunden. Bitte Admin kontaktieren.',
+                ephemeral: true
+            });
+        }
+
+        // Create ticket channel IN THE CORRECT CATEGORY
         const ticketNumber = Math.floor(Math.random() * 1000);
         const ticketChannel = await interaction.guild.channels.create({
             name: `ticket-${interaction.user.username}-${ticketNumber}`.toLowerCase(),
             type: ChannelType.GuildText,
+            parent: process.env.TICKET_CATEGORY_ID, // DIESE ZEILE IST WICHTIG!
             permissionOverwrites: [
                 // @everyone - KEINE Rechte (standardmäßig alle verweigern)
                 {
@@ -136,7 +156,7 @@ async function handleTicketCreation(interaction) {
             topic: `ticket-${interaction.user.id}`
         });
 
-        console.log(`Ticket channel created: ${ticketChannel.name}`);
+        console.log(`✅ Ticket channel created in category: ${ticketChannel.name}`);
 
         // Send welcome message
         const embed = new EmbedBuilder()
@@ -183,7 +203,7 @@ async function handleTicketCreation(interaction) {
         // Pin die Willkommensnachricht
         await welcomeMessage.pin();
 
-        console.log('Welcome message sent to ticket channel');
+        console.log('✅ Welcome message sent to ticket channel');
 
         // Then reply to the interaction
         await interaction.reply({
@@ -192,7 +212,7 @@ async function handleTicketCreation(interaction) {
         });
 
     } catch (error) {
-        console.error('Error creating ticket:', error);
+        console.error('❌ Error creating ticket:', error);
         await interaction.reply({
             content: '❌ Fehler beim Erstellen des Tickets!',
             ephemeral: true
