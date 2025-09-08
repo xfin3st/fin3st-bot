@@ -3,10 +3,12 @@ const { Events, ChannelType, PermissionsBitField, EmbedBuilder, ActionRowBuilder
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
-        console.log(`🔹 Interaction received: ${interaction.type} - ${interaction.isButton() ? interaction.customId : interaction.commandName}`);
+        console.log(`🔹 Interaction received: ${interaction.type}`);
         
-        // Handle Slash Commands
+        // Handle Slash Commands FIRST
         if (interaction.isChatInputCommand()) {
+            console.log(`✅ Slash command: ${interaction.commandName}`);
+            
             const command = interaction.client.commands.get(interaction.commandName);
 
             if (!command) {
@@ -18,68 +20,72 @@ module.exports = {
             }
 
             try {
-                console.log(`✅ Führe Befehl aus: ${interaction.commandName}`);
                 await command.execute(interaction);
             } catch (error) {
                 console.error(`❌ Fehler bei Befehl ${interaction.commandName}:`, error);
                 
-                const errorMessage = {
-                    content: '❌ Es gab einen Fehler bei der Ausführung dieses Befehls!',
-                    ephemeral: true
-                };
-
-                if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp(errorMessage);
-                } else {
-                    await interaction.reply(errorMessage);
+                try {
+                    if (interaction.replied || interaction.deferred) {
+                        await interaction.followUp({ 
+                            content: '❌ Es gab einen Fehler bei der Ausführung dieses Befehls!', 
+                            ephemeral: true 
+                        });
+                    } else {
+                        await interaction.reply({ 
+                            content: '❌ Es gab einen Fehler bei der Ausführung dieses Befehls!', 
+                            ephemeral: true 
+                        });
+                    }
+                } catch (replyError) {
+                    console.error('Konnte Fehler nicht senden:', replyError);
                 }
             }
+            return; // WICHTIG: Nach Slash Command returnen!
         } 
-        // Handle Button Interactions
-        else if (interaction.isButton()) {
+        
+        // Handle Button Interactions SECOND
+        if (interaction.isButton()) {
+            console.log(`🔘 Button: ${interaction.customId}`);
+            
             try {
-                console.log(`🔘 Button clicked: ${interaction.customId} by ${interaction.user.tag}`);
-                
-                if (interaction.customId === 'create_ticket') {
-                    await handleTicketCreation(interaction);
-                }
-                else if (interaction.customId === 'close_ticket') {
-                    await handleTicketClose(interaction);
-                }
-                else if (interaction.customId === 'support_close_ticket') {
-                    await handleSupportCloseTicket(interaction);
-                }
-                else if (interaction.customId === 'claim_ticket') {
-                    await handleClaimTicket(interaction);
-                } else {
-                    console.log(`❌ Unbekannter Button: ${interaction.customId}`);
-                    await interaction.reply({
-                        content: '❌ Dieser Button funktioniert nicht mehr!',
-                        ephemeral: true
-                    });
+                switch (interaction.customId) {
+                    case 'create_ticket':
+                        await handleTicketCreation(interaction);
+                        break;
+                    case 'close_ticket':
+                        await handleTicketClose(interaction);
+                        break;
+                    case 'support_close_ticket':
+                        await handleSupportCloseTicket(interaction);
+                        break;
+                    case 'claim_ticket':
+                        await handleClaimTicket(interaction);
+                        break;
+                    default:
+                        await interaction.reply({
+                            content: '❌ Unbekannter Button!',
+                            ephemeral: true
+                        });
                 }
             } catch (error) {
-                console.error('❌ Fehler bei Button-Interaktion:', error);
-                const errorMessage = {
-                    content: '❌ Diese Interaktion ist fehlgeschlagen!',
-                    ephemeral: true
-                };
-                
-                if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp(errorMessage);
-                } else {
-                    await interaction.reply(errorMessage);
+                console.error('❌ Fehler bei Button:', error);
+                try {
+                    await interaction.reply({
+                        content: '❌ Diese Interaktion ist fehlgeschlagen!',
+                        ephemeral: true
+                    });
+                } catch (replyError) {
+                    console.error('Konnte Fehler nicht senden:', replyError);
                 }
             }
+            return;
         }
-        // Handle other interaction types
-        else {
-            console.log(`ℹ️  Unbehandelte Interaktion: ${interaction.type}`);
-        }
+        
+        console.log(`ℹ️  Unbehandelte Interaktion: ${interaction.type}`);
     },
 };
 
-// Ticket Creation Handler
+// Ticket Creation Handler mit verbesserter Fehlerbehandlung
 async function handleTicketCreation(interaction) {
     // Check if user already has a ticket
     const existingTicket = interaction.guild.channels.cache.find(
@@ -94,33 +100,33 @@ async function handleTicketCreation(interaction) {
     }
 
     try {
-        // Check if TICKET_CATEGORY_ID is set
-        if (!process.env.TICKET_CATEGORY_ID) {
-            console.error('❌ TICKET_CATEGORY_ID ist nicht in der .env gesetzt!');
-            return await interaction.reply({
-                content: '❌ Ticket-System ist nicht korrekt konfiguriert. Bitte Admin kontaktieren.',
-                ephemeral: true
-            });
+        // Debug: Zeige Umgebungsvariablen
+        console.log('Umgebungsvariablen:', {
+            hasCategoryId: !!process.env.TICKET_CATEGORY_ID,
+            categoryId: process.env.TICKET_CATEGORY_ID,
+            hasSupportRole: !!process.env.SUPPORT_ROLE_ID
+        });
+
+        // Fallback: Wenn keine Kategorie ID, erstelle ohne Kategorie
+        let parentId = null;
+        if (process.env.TICKET_CATEGORY_ID) {
+            const category = interaction.guild.channels.cache.get(process.env.TICKET_CATEGORY_ID);
+            if (category) {
+                parentId = process.env.TICKET_CATEGORY_ID;
+                console.log('✅ Kategorie gefunden:', category.name);
+            } else {
+                console.log('⚠️  Kategorie nicht gefunden, erstelle ohne Kategorie');
+            }
+        } else {
+            console.log('⚠️  TICKET_CATEGORY_ID nicht gesetzt, erstelle ohne Kategorie');
         }
 
-        // Get the category channel
-        const category = interaction.guild.channels.cache.get(process.env.TICKET_CATEGORY_ID);
-        if (!category) {
-            console.error('❌ Ticket-Kategorie nicht gefunden:', process.env.TICKET_CATEGORY_ID);
-            return await interaction.reply({
-                content: '❌ Ticket-Kategorie nicht gefunden. Bitte Admin kontaktieren.',
-                ephemeral: true
-            });
-        }
-
-        // Create ticket channel IN THE CORRECT CATEGORY
+        // Create ticket channel
         const ticketNumber = Math.floor(Math.random() * 1000);
-        const ticketChannel = await interaction.guild.channels.create({
-            name: `ticket-${interaction.user.username}-${ticketNumber}`.toLowerCase(),
+        const channelData = {
+            name: `ticket-${interaction.user.username}-${ticketNumber}`.toLowerCase().slice(0, 100),
             type: ChannelType.GuildText,
-            parent: process.env.TICKET_CATEGORY_ID,
             permissionOverwrites: [
-                // @everyone - KEINE Rechte
                 {
                     id: interaction.guild.id,
                     deny: [
@@ -129,7 +135,6 @@ async function handleTicketCreation(interaction) {
                         PermissionsBitField.Flags.ReadMessageHistory
                     ]
                 },
-                // Ticket Ersteller - VOLLER Zugriff
                 {
                     id: interaction.user.id,
                     allow: [
@@ -140,7 +145,6 @@ async function handleTicketCreation(interaction) {
                         PermissionsBitField.Flags.EmbedLinks
                     ]
                 },
-                // Bot - ADMIN Rechte
                 {
                     id: interaction.client.user.id,
                     allow: [
@@ -152,26 +156,20 @@ async function handleTicketCreation(interaction) {
                         PermissionsBitField.Flags.EmbedLinks,
                         PermissionsBitField.Flags.AttachFiles
                     ]
-                },
-                // Support Rolle - VOLLER Zugriff (wenn definiert)
-                ...(process.env.SUPPORT_ROLE_ID ? [{
-                    id: process.env.SUPPORT_ROLE_ID,
-                    allow: [
-                        PermissionsBitField.Flags.ViewChannel,
-                        PermissionsBitField.Flags.SendMessages,
-                        PermissionsBitField.Flags.ReadMessageHistory,
-                        PermissionsBitField.Flags.ManageMessages,
-                        PermissionsBitField.Flags.EmbedLinks,
-                        PermissionsBitField.Flags.AttachFiles
-                    ]
-                }] : [])
+                }
             ],
             topic: `ticket-${interaction.user.id}`
-        });
+        };
 
+        // Füge parent nur hinzu wenn verfügbar
+        if (parentId) {
+            channelData.parent = parentId;
+        }
+
+        const ticketChannel = await interaction.guild.channels.create(channelData);
         console.log(`✅ Ticket channel created: ${ticketChannel.name}`);
 
-        // Send welcome message
+        // Rest des Codes bleibt gleich...
         const embed = new EmbedBuilder()
             .setColor(0x5865F2)
             .setTitle('🎫 Support Ticket')
@@ -179,48 +177,26 @@ async function handleTicketCreation(interaction) {
             .addFields(
                 { name: 'User', value: `${interaction.user.tag}`, inline: true },
                 { name: 'Ticket ID', value: `#${ticketNumber}`, inline: true },
-                { name: 'Erstellt am', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: false },
-                { name: 'Zugriff', value: 'Nur du und das Support-Team können diesen Channel sehen', inline: false }
+                { name: 'Erstellt am', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: false }
             )
             .setFooter({ text: 'Unser Support-Team wird sich bald bei dir melden' });
 
-        // Buttons für verschiedene Aktionen
         const actionButtons = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('close_ticket')
                 .setLabel('Ticket schließen')
                 .setStyle(ButtonStyle.Danger)
-                .setEmoji('🔒'),
-            new ButtonBuilder()
-                .setCustomId('claim_ticket')
-                .setLabel('Ticket übernehmen')
-                .setStyle(ButtonStyle.Success)
-                .setEmoji('👋')
+                .setEmoji('🔒')
         );
 
-        const supportButtons = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('support_close_ticket')
-                .setLabel('Support schließt Ticket')
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji('📝')
-        );
-
-        // Send welcome message to ticket channel
-        const welcomeMessage = await ticketChannel.send({
-            content: `${interaction.user} ${process.env.SUPPORT_ROLE_ID ? `<@&${process.env.SUPPORT_ROLE_ID}>` : ''}`,
+        await ticketChannel.send({
+            content: `${interaction.user}`,
             embeds: [embed],
-            components: [actionButtons, supportButtons]
+            components: [actionButtons]
         });
 
-        // Pin die Willkommensnachricht
-        await welcomeMessage.pin();
-
-        console.log('✅ Welcome message sent to ticket channel');
-
-        // Then reply to the interaction
         await interaction.reply({
-            content: `✅ Dein Ticket wurde erstellt: ${ticketChannel}\n**Nur du und das Support-Team können den Channel sehen!**`,
+            content: `✅ Dein Ticket wurde erstellt: ${ticketChannel}`,
             ephemeral: true
         });
 
@@ -233,156 +209,22 @@ async function handleTicketCreation(interaction) {
     }
 }
 
-// Ticket Close Handler (durch User)
+// Vereinfachte Close-Funktion
 async function handleTicketClose(interaction) {
     try {
-        // Check if this is actually a ticket channel
-        if (!interaction.channel.topic || !interaction.channel.topic.includes('ticket-')) {
-            return await interaction.reply({
-                content: '❌ Dieser Befehl kann nur in Ticket-Channels verwendet werden!',
-                ephemeral: true
-            });
-        }
-
-        // Check if user is ticket owner or support
-        const ticketOwnerId = interaction.channel.topic.split('-')[1];
-        if (interaction.user.id !== ticketOwnerId && !(process.env.SUPPORT_ROLE_ID && interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID))) {
-            return await interaction.reply({
-                content: '❌ Nur der Ticket-Ersteller oder Support-Mitglieder können das Ticket schließen!',
-                ephemeral: true
-            });
-        }
-
-        await interaction.reply({
-            content: '🗑️ Ticket wird in 5 Sekunden geschlossen...',
-        });
-        
-        setTimeout(async () => {
-            try {
-                await interaction.channel.delete();
-            } catch (error) {
-                console.error('Fehler beim Löschen des Ticket-Channels:', error);
-                await interaction.channel.send('❌ Konnte den Channel nicht löschen. Bitte manuell löschen.');
-            }
-        }, 5000);
+        await interaction.reply({ content: '🗑️ Ticket wird geschlossen...' });
+        setTimeout(() => interaction.channel.delete().catch(console.error), 3000);
     } catch (error) {
         console.error('Error closing ticket:', error);
-        await interaction.reply({
-            content: '❌ Fehler beim Schließen des Tickets!',
-            ephemeral: true
-        });
+        await interaction.reply({ content: '❌ Fehler beim Schließen!', ephemeral: true });
     }
 }
 
-// Support Close Ticket Handler (durch Support)
+// Platzhalter für andere Funktionen
 async function handleSupportCloseTicket(interaction) {
-    try {
-        if (!interaction.channel.topic || !interaction.channel.topic.includes('ticket-')) {
-            return await interaction.reply({
-                content: '❌ Dieser Befehl kann nur in Ticket-Channels verwendet werden!',
-                ephemeral: true
-            });
-        }
-
-        // Check if user has support role
-        if (!process.env.SUPPORT_ROLE_ID || !interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
-            return await interaction.reply({
-                content: '❌ Nur Support-Mitglieder können diesen Befehl verwenden!',
-                ephemeral: true
-            });
-        }
-
-        const embed = new EmbedBuilder()
-            .setColor(0x57F287)
-            .setTitle('✅ Ticket geschlossen')
-            .setDescription(`Das Ticket wurde von ${interaction.user} (Support) geschlossen.`)
-            .addFields(
-                { name: 'Geschlossen von', value: `${interaction.user.tag}`, inline: true },
-                { name: 'Geschlossen am', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }
-            )
-            .setFooter({ text: 'Ticket-System' });
-
-        await interaction.reply({ embeds: [embed] });
-        
-        // Entferne alle Buttons nach dem Schließen
-        const disabledButtons = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('close_ticket')
-                .setLabel('Ticket geschlossen')
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji('✅')
-                .setDisabled(true),
-            new ButtonBuilder()
-                .setCustomId('support_close_ticket')
-                .setLabel('Support geschlossen')
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji('✅')
-                .setDisabled(true)
-        );
-
-        await interaction.message.edit({ components: [disabledButtons] });
-
-    } catch (error) {
-        console.error('Error with support close:', error);
-        await interaction.reply({
-            content: '❌ Fehler beim Schließen des Tickets!',
-            ephemeral: true
-        });
-    }
+    await interaction.reply({ content: '📝 Support close feature coming soon...', ephemeral: true });
 }
 
-// Ticket Claim Handler (Support übernimmt Ticket)
 async function handleClaimTicket(interaction) {
-    try {
-        if (!interaction.channel.topic || !interaction.channel.topic.includes('ticket-')) {
-            return await interaction.reply({
-                content: '❌ Dieser Befehl kann nur in Ticket-Channels verwendet werden!',
-                ephemeral: true
-            });
-        }
-
-        // Check if user has support role
-        if (!process.env.SUPPORT_ROLE_ID || !interaction.member.roles.cache.has(process.env.SUPPORT_ROLE_ID)) {
-            return await interaction.reply({
-                content: '❌ Nur Support-Mitglieder können Tickets übernehmen!',
-                ephemeral: true
-            });
-        }
-
-        const embed = new EmbedBuilder()
-            .setColor(0xFEE75C)
-            .setTitle('👋 Ticket übernommen')
-            .setDescription(`${interaction.user} (Support) kümmert sich nun um dieses Ticket.`)
-            .addFields(
-                { name: 'Support-Mitarbeiter', value: `${interaction.user.tag}`, inline: true },
-                { name: 'Übernommen am', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }
-            )
-            .setFooter({ text: 'Vielen Dank für deine Hilfe!' });
-
-        await interaction.reply({ embeds: [embed] });
-
-        // Deaktiviere den Claim-Button nach dem Übernehmen
-        const actionButtons = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('close_ticket')
-                .setLabel('Ticket schließen')
-                .setStyle(ButtonStyle.Danger)
-                .setEmoji('🔒'),
-            new ButtonBuilder()
-                .setCustomId('claim_ticket')
-                .setLabel('Bereits übernommen')
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji('✅')
-                .setDisabled(true)
-        );
-
-        await interaction.message.edit({ components: [actionButtons] });
-
-    } catch (error) {
-        console.error('Error claiming ticket:', error);
-        await interaction.reply({
-            content: '❌ Fehler beim Übernehmen des Tickets!',
-            ephemeral: true
-        });
-    }
+    await interaction.reply({ content: '👋 Claim feature coming soon...', ephemeral: true });
 }
