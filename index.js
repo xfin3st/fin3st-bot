@@ -2,40 +2,95 @@ const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
-// DEBUG: Zeige alle verfügbaren Umgebungsvariablen
-console.log('🔍 Überprüfe Umgebungsvariablen:');
-console.log('DISCORD_TOKEN:', process.env.DISCORD_TOKEN ? '✅ Vorhanden' : '❌ Fehlt');
-console.log('TICKET_CATEGORY_ID:', process.env.TICKET_CATEGORY_ID || '❌ Fehlt');
-console.log('SUPPORT_ROLE_ID:', process.env.SUPPORT_ROLE_ID || '❌ Fehlt');
-console.log('GUILD_ID:', process.env.GUILD_ID || '❌ Fehlt');
+// Funktion zum Laden von Umgebungsvariablen aus verschiedenen Quellen
+function loadEnvironmentVariables() {
+    console.log('🔄 Lade Umgebungsvariablen...');
+    
+    const envPaths = [
+        path.join(__dirname, '.env'),
+        path.join(__dirname, 'stack.env'),
+        '/etc/secrets/.env',
+        '/app/.env',
+        '/config/.env'
+    ];
 
-// Versuche .env manuell zu laden falls nicht vorhanden
-if (!process.env.DISCORD_TOKEN) {
-    console.log('🔄 Versuche .env manuell zu laden...');
+    let envLoaded = false;
+
+    // 1. Versuche dotenv zu verwenden
     try {
-        // Prüfe verschiedene .env Dateien
-        const envPaths = [
-            path.join(__dirname, '.env'),
-            path.join(__dirname, 'stack.env'),
-            '/etc/secrets/.env'
-        ];
-        
-        let envLoaded = false;
         for (const envPath of envPaths) {
             if (fs.existsSync(envPath)) {
                 require('dotenv').config({ path: envPath });
-                console.log(`✅ .env geladen von: ${envPath}`);
+                console.log(`✅ dotenv geladen von: ${envPath}`);
                 envLoaded = true;
                 break;
             }
         }
-        
-        if (!envLoaded) {
-            console.log('⚠️  Keine .env Datei gefunden');
-        }
-    } catch (error) {
-        console.log('❌ Fehler beim Laden von .env:', error.message);
+    } catch (dotenvError) {
+        console.log('⚠️  dotenv fehlgeschlagen:', dotenvError.message);
     }
+
+    // 2. MANUELLES Laden als Fallback
+    if (!envLoaded) {
+        for (const envPath of envPaths) {
+            if (fs.existsSync(envPath)) {
+                try {
+                    console.log(`📁 Manuelles Laden versuchen: ${envPath}`);
+                    const envContent = fs.readFileSync(envPath, 'utf8');
+                    const envLines = envContent.split('\n');
+                    
+                    for (const line of envLines) {
+                        const trimmedLine = line.trim();
+                        if (trimmedLine && !trimmedLine.startsWith('#')) {
+                            const equalsIndex = trimmedLine.indexOf('=');
+                            if (equalsIndex > 0) {
+                                const key = trimmedLine.substring(0, equalsIndex).trim();
+                                const value = trimmedLine.substring(equalsIndex + 1).trim();
+                                
+                                // Entferne Anführungszeichen falls vorhanden
+                                const cleanValue = value.replace(/^['"](.*)['"]$/, '$1');
+                                
+                                if (key && cleanValue) {
+                                    process.env[key] = cleanValue;
+                                    console.log(`   ${key}=${cleanValue.replace(/.(?=.{4})/g, '*')}`);
+                                }
+                            }
+                        }
+                    }
+                    console.log(`✅ Manuell geladen von: ${envPath}`);
+                    envLoaded = true;
+                    break;
+                } catch (readError) {
+                    console.log(`❌ Fehler beim manuellen Laden von ${envPath}:`, readError.message);
+                }
+            }
+        }
+    }
+
+    if (!envLoaded) {
+        console.log('⚠️  Keine .env Datei gefunden, verwende Prozessvariablen');
+    }
+}
+
+// Umgebungsvariablen laden
+loadEnvironmentVariables();
+
+// DEBUG: Zeige alle relevanten Umgebungsvariablen
+console.log('\n🔍 Finale Umgebungsvariablen:');
+const importantVars = ['DISCORD_TOKEN', 'TICKET_CATEGORY_ID', 'SUPPORT_ROLE_ID', 'GUILD_ID', 'NODE_ENV'];
+importantVars.forEach(varName => {
+    const value = process.env[varName];
+    if (value) {
+        console.log(`${varName}: ✅ ${varName === 'DISCORD_TOKEN' ? value.replace(/.(?=.{4})/g, '*') : value}`);
+    } else {
+        console.log(`${varName}: ❌ Fehlt`);
+    }
+});
+
+// Fallback für kritische Variablen
+if (!process.env.DISCORD_TOKEN) {
+    console.error('❌ KRITISCH: DISCORD_TOKEN fehlt!');
+    process.exit(1);
 }
 
 // Erstelle einen neuen Client
@@ -58,28 +113,35 @@ client.commands = new Collection();
 // Lade Befehle MIT Fehlerbehandlung
 const commandsPath = path.join(__dirname, 'commands');
 try {
-    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-    const loadedCommands = new Set();
+    if (fs.existsSync(commandsPath)) {
+        const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+        const loadedCommands = new Set();
 
-    for (const file of commandFiles) {
-        try {
-            const command = require(path.join(commandsPath, file));
-            
-            if (loadedCommands.has(command.data.name)) {
-                console.log(`❌ Überspringe doppelten Befehl: ${command.data.name} (in ${file})`);
-                continue;
+        for (const file of commandFiles) {
+            try {
+                const filePath = path.join(commandsPath, file);
+                // Cache leeren für Hot-Reloading
+                delete require.cache[require.resolve(filePath)];
+                const command = require(filePath);
+                
+                if (loadedCommands.has(command.data.name)) {
+                    console.log(`❌ Überspringe doppelten Befehl: ${command.data.name} (in ${file})`);
+                    continue;
+                }
+                
+                client.commands.set(command.data.name, command);
+                loadedCommands.add(command.data.name);
+                console.log(`✅ Befehl geladen: ${command.data.name}`);
+                
+            } catch (error) {
+                console.error(`❌ Fehler beim Laden von ${file}:`, error.message);
             }
-            
-            client.commands.set(command.data.name, command);
-            loadedCommands.add(command.data.name);
-            console.log(`✅ Befehl geladen: ${command.data.name}`);
-            
-        } catch (error) {
-            console.error(`❌ Fehler beim Laden von ${file}:`, error.message);
         }
+    } else {
+        console.log('⚠️  commands Ordner nicht gefunden');
     }
 } catch (error) {
-    console.log('⚠️  commands Ordner nicht gefunden:', error.message);
+    console.log('⚠️  Fehler beim commands Ordner:', error.message);
 }
 
 // Lade Events MIT Fehlerbehandlung
@@ -90,11 +152,15 @@ try {
         
         for (const file of eventFiles) {
             try {
-                const event = require(path.join(eventsPath, file));
+                const filePath = path.join(eventsPath, file);
+                // Cache leeren für Hot-Reloading
+                delete require.cache[require.resolve(filePath)];
+                const event = require(filePath);
+                
                 if (event.once) {
-                    client.once(event.name, (...args) => event.execute(...args));
+                    client.once(event.name, (...args) => event.execute(...args, client));
                 } else {
-                    client.on(event.name, (...args) => event.execute(...args));
+                    client.on(event.name, (...args) => event.execute(...args, client));
                 }
                 console.log(`✅ Event geladen: ${event.name}`);
             } catch (error) {
@@ -102,31 +168,38 @@ try {
             }
         }
     } else {
-        console.log('⚠️  events Ordner nicht gefunden, überspringe...');
+        console.log('⚠️  events Ordner nicht gefunden');
     }
 } catch (error) {
-    console.log('⚠️  Fehler beim Laden von events:', error.message);
+    console.log('⚠️  Fehler beim events Ordner:', error.message);
 }
 
 // Verbindung herstellen MIT Fehlerbehandlung
 client.login(process.env.DISCORD_TOKEN).catch(error => {
-    console.error('❌ FEHLER BEIM LOGIN:', error);
+    console.error('❌ FEHLER BEIM LOGIN:', error.message);
     console.log('💡 Mögliche Ursachen:');
-    console.log('1. DISCORD_TOKEN ist nicht in der .env Datei');
-    console.log('2 .env Datei ist nicht korrekt formatiert');
-    console.log('3. Bot-Token ist ungültig');
+    console.log('1. DISCORD_TOKEN ist ungültig oder abgelaufen');
+    console.log('2. Bot hat keine Berechtigungen');
+    console.log('3. Netzwerkprobleme');
     process.exit(1);
 });
 
-// NACH client.login() - Befehle automatisch registrieren
+// Ready Event
 client.once('ready', async () => {
-    console.log(`✅ Bot eingeloggt als ${client.user.tag}`);
-    console.log(`🏠 Guild ID: ${process.env.GUILD_ID}`);
-    console.log(`🎫 Ticket Kategorie: ${process.env.TICKET_CATEGORY_ID}`);
-    console.log(`🛡️ Support Rolle: ${process.env.SUPPORT_ROLE_ID}`);
+    console.log(`\n🎉 Bot erfolgreich eingeloggt als ${client.user.tag}`);
+    console.log(`📊 Servern: ${client.guilds.cache.size}`);
+    console.log(`👥 Nutzer: ${client.users.cache.size}`);
     
+    // Zeige konfigurierte Werte
+    console.log(`\n⚙️  Konfiguration:`);
+    console.log(`🏠 Guild ID: ${process.env.GUILD_ID || 'Nicht gesetzt'}`);
+    console.log(`🎫 Ticket Kategorie: ${process.env.TICKET_CATEGORY_ID || 'Nicht gesetzt'}`);
+    console.log(`🛡️ Support Rolle: ${process.env.SUPPORT_ROLE_ID || 'Nicht gesetzt'}`);
+    console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+    
+    // Befehle registrieren
     try {
-        console.log('🔄 Starte Befehlsregistrierung...');
+        console.log('\n🔄 Starte Befehlsregistrierung...');
         
         const commands = [];
         const commandNames = new Set();
@@ -158,32 +231,59 @@ client.once('ready', async () => {
         console.log(`✅ ${commands.length} Befehle global registriert!`);
         
     } catch (error) {
-        console.error('❌ Fehler beim globalen Registrieren:', error);
+        console.error('❌ Fehler beim globalen Registrieren:', error.message);
         
         // Fallback: Für spezifischen Server registrieren
         try {
+            let targetGuild = null;
+            
             if (process.env.GUILD_ID) {
-                const guild = await client.guilds.fetch(process.env.GUILD_ID);
-                await guild.commands.set(commands);
-                console.log(`✅ ${commands.length} Befehle auf Server "${guild.name}" registriert!`);
+                targetGuild = await client.guilds.fetch(process.env.GUILD_ID).catch(() => null);
+            }
+            
+            if (!targetGuild) {
+                targetGuild = client.guilds.cache.first();
+            }
+            
+            if (targetGuild) {
+                await targetGuild.commands.set(commands);
+                console.log(`✅ ${commands.length} Befehle auf Server "${targetGuild.name}" registriert!`);
             } else {
-                const guild = client.guilds.cache.first();
-                if (guild) {
-                    await guild.commands.set(commands);
-                    console.log(`✅ ${commands.length} Befehle auf Server "${guild.name}" registriert!`);
-                }
+                console.log('⚠️  Kein Server für Fallback-Registrierung verfügbar');
             }
         } catch (fallbackError) {
-            console.error('❌ Auch Fallback-Registrierung fehlgeschlagen:', fallbackError);
+            console.error('❌ Fallback-Registrierung fehlgeschlagen:', fallbackError.message);
         }
     }
 });
 
-// Error Handling
+// Erweiterte Error Handling
 client.on('error', (error) => {
-    console.error('❌ Client Error:', error);
+    console.error('❌ Client Error:', error.message);
+});
+
+client.on('warn', (warning) => {
+    console.warn('⚠️  Client Warning:', warning);
 });
 
 process.on('unhandledRejection', (error) => {
-    console.error('❌ Unhandled Rejection:', error);
+    console.error('❌ Unhandled Rejection:', error.message);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught Exception:', error.message);
+    process.exit(1);
+});
+
+// Graceful Shutdown
+process.on('SIGINT', () => {
+    console.log('\n🛑 Bot wird heruntergefahren...');
+    client.destroy();
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('\n🛑 Bot wird beendet...');
+    client.destroy();
+    process.exit(0);
 });
