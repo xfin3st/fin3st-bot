@@ -185,7 +185,7 @@ client.login(process.env.DISCORD_TOKEN).catch(error => {
 });
 
 // Ready Event
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     console.log(`\n🎉 Bot erfolgreich eingeloggt als ${client.user.tag}`);
     console.log(`📊 Servern: ${client.guilds.cache.size}`);
     console.log(`👥 Nutzer: ${client.users.cache.size}`);
