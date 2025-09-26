@@ -30,11 +30,11 @@ module.exports = {
                 const welcomeEmbed = new EmbedBuilder()
                     .setColor(0x57F287)
                     .setTitle('Willkommen auf dem Server!')
-                    .setDescription(`Hey ${member}, herzlich willkommen auf **${member.guild.name}**!`)
+                    .setDescription(`Hey ${member.user.globalName || member.user.username}, herzlich willkommen auf **${member.guild.name}**!`)
                     .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
                     .addFields(
                         { name: 'Mitgliedsnummer', value: `#${member.guild.memberCount}`, inline: true },
-                        { name: 'Account erstellt', value: ``, inline: true }
+                        { name: 'Account erstellt', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:D>`, inline: true }
                     )
                     .setTimestamp()
                     .setFooter({ text: 'Viel Spaß auf unserem Server!' });
@@ -55,7 +55,7 @@ module.exports = {
         // Private Nachricht an das neue Mitglied senden
         try {
             await member.send({
-                content: `Hey ${member.user.username}, willkommen auf **${member.guild.name}**!` +
+                content: `Hey ${member.user.globalName || member.user.username}, willkommen auf **${member.guild.name}**! ` +
                          `Wir freuen uns, dich dabei zu haben. ` +
                          `Vergiss nicht, die Regeln durchzulesen und dich vorzustellen!`
             });
