@@ -6,7 +6,7 @@
 
     "youtubeAlerts": {
         "channelId": "UC1-VOKyTJrgLiBeiJqzeIUQ",        
-        "alertChannelId": "DEIN_DISCORD_CHANNEL_ID",   
+        "alertChannelId": "1404222301607694536",   
         "intervalMinutes": 5,
         "pingRoleId": ""                              
     }
