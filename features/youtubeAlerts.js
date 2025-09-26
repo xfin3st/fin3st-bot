@@ -7,7 +7,7 @@ const path = require('path');
 // installiere zusätzlich "node-fetch" und entkommentiere die nächste Zeile:
 // const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
-const LAST_FILE = path.join(process.cwd(), 'data', 'youtube_last.json');
+const LAST_FILE = path.join(process.cwd(), 'youtube_last.json');
 
 async function readLast() {
   try {
