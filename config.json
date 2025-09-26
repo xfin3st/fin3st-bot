@@ -2,5 +2,12 @@
     "clientId": "1202513088868515860",
     "guildId": "1202478042212204544",
     "welcomeChannelId": "1202496784644177950",
-    "welcomeRoleId": "1412183469219385574"
+    "welcomeRoleId": "1412183469219385574",
+
+    "youtubeAlerts": {
+        "channelId": "UC1-VOKyTJrgLiBeiJqzeIUQ",        // JP Performance
+        "alertChannelId": "DEIN_DISCORD_CHANNEL_ID",    // ID von dem Textkanal, wo Alerts rein sollen
+        "intervalMinutes": 5,
+        "pingRoleId": ""                                // optional: Rolle pingen, sonst leer lassen
+    }
 }
