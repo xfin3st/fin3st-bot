@@ -1,6 +1,8 @@
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const { startYouTubeAlerts } = require('./features/youtubeAlerts');
+const config = require('./config.json');
 
 // Funktion zum Laden von Umgebungsvariablen aus verschiedenen Quellen
 function loadEnvironmentVariables() {
@@ -185,7 +187,7 @@ client.login(process.env.DISCORD_TOKEN).catch(error => {
 });
 
 // Ready Event
-client.once('clientReady', async () => {
+client.once('ready', async () => {
     console.log(`\n🎉 Bot erfolgreich eingeloggt als ${client.user.tag}`);
     console.log(`📊 Servern: ${client.guilds.cache.size}`);
     console.log(`👥 Nutzer: ${client.users.cache.size}`);
@@ -196,6 +198,13 @@ client.once('clientReady', async () => {
     console.log(`🎫 Ticket Kategorie: ${process.env.TICKET_CATEGORY_ID || 'Nicht gesetzt'}`);
     console.log(`🛡️ Support Rolle: ${process.env.SUPPORT_ROLE_ID || 'Nicht gesetzt'}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+
+    // YouTube Alerts starten
+    if (config.youtubeAlerts?.channelId && config.youtubeAlerts?.alertChannelId) {
+        startYouTubeAlerts(client, config.youtubeAlerts);
+    } else {
+        console.log('ℹ️ YouTube Alerts nicht konfiguriert.');
+    }
     
     // Befehle registrieren
     try {
