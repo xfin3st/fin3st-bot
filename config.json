@@ -5,9 +5,9 @@
     "welcomeRoleId": "1412183469219385574",
 
     "youtubeAlerts": {
-        "channelId": "UC1-VOKyTJrgLiBeiJqzeIUQ",        // JP Performance
-        "alertChannelId": "DEIN_DISCORD_CHANNEL_ID",    // ID von dem Textkanal, wo Alerts rein sollen
+        "channelId": "UC1-VOKyTJrgLiBeiJqzeIUQ",        
+        "alertChannelId": "DEIN_DISCORD_CHANNEL_ID",   
         "intervalMinutes": 5,
-        "pingRoleId": ""                                // optional: Rolle pingen, sonst leer lassen
+        "pingRoleId": ""                              
     }
 }
