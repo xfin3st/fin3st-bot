@@ -30,7 +30,7 @@ module.exports = {
                 const welcomeEmbed = new EmbedBuilder()
                     .setColor(0x57F287)
                     .setTitle('Willkommen auf dem Server!')
-                    .setDescription(`Hey ${member.user.globalName || member.user.username}, herzlich willkommen auf **${member.guild.name}**!`)
+                    .setDescription(`Hey **${member.user.globalName || member.user.username}**, herzlich willkommen auf **${member.guild.name}**!`)
                     .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
                     .addFields(
                         { name: 'Mitgliedsnummer', value: `#${member.guild.memberCount}`, inline: true },
