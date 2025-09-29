@@ -81,6 +81,14 @@ async function startYouTubeAlerts(client) {
       const latest = await fetchLatestEntry(channelId, apiKey);
       if (!latest) return;
 
+      // Wenn noch kein gespeicherter Wert vorhanden ist → nur merken, nicht posten
+      if (!last.latestId) {
+        last.latestId = latest.videoId;
+        await writeLast(last);
+        return;
+      }
+
+      // Nur posten, wenn sich die Video-ID geändert hat
       if (last.latestId !== latest.videoId) {
         const ts = latest.publishedIso ? Math.floor(new Date(latest.publishedIso).getTime() / 1000) : null;
 
@@ -100,11 +108,14 @@ async function startYouTubeAlerts(client) {
         // 1. Embed senden
         await alertsChan.send({ embeds: [embed] });
 
-        // 2. Danach Ping separat
+        // 2. Danach Ping separat mit Titel + Link
         if (pingRoleId) {
-          await alertsChan.send(`<@&${pingRoleId}> 🎬 Neues Video ist online!`);
+          await alertsChan.send(
+            `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!\n▶️ ${latest.url}`
+          );
         }
 
+        // Neuste ID speichern
         last.latestId = latest.videoId;
         await writeLast(last);
       }
@@ -113,7 +124,7 @@ async function startYouTubeAlerts(client) {
     }
   }
 
-  // beim Start sofort prüfen, danach im Intervall
+  // Beim Start sofort prüfen, danach im Intervall
   await checkOnce();
   const intervalMs = Math.max(1, intervalMinutes) * 60_000;
   setInterval(checkOnce, intervalMs);
