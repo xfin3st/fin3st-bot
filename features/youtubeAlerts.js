@@ -100,11 +100,9 @@ async function startYouTubeAlerts(client) {
         // 1. Embed senden
         await alertsChan.send({ embeds: [embed] });
 
-        // 2. Danach Ping mit Titel + Link
+        // 2. Danach Ping separat
         if (pingRoleId) {
-          await alertsChan.send(
-            `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!\n▶️ ${latest.url}`
-          );
+          await alertsChan.send(`<@&${pingRoleId}> 🎬 Neues Video ist online!`);
         }
 
         last.latestId = latest.videoId;
