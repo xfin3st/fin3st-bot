@@ -18,7 +18,6 @@ function loadEnvironmentVariables() {
 
     let envLoaded = false;
 
-    // 1. Versuche dotenv zu verwenden
     try {
         for (const envPath of envPaths) {
             if (fs.existsSync(envPath)) {
@@ -32,7 +31,6 @@ function loadEnvironmentVariables() {
         console.log('⚠️  dotenv fehlgeschlagen:', dotenvError.message);
     }
 
-    // 2. MANUELLES Laden als Fallback
     if (!envLoaded) {
         for (const envPath of envPaths) {
             if (fs.existsSync(envPath)) {
@@ -48,8 +46,6 @@ function loadEnvironmentVariables() {
                             if (equalsIndex > 0) {
                                 const key = trimmedLine.substring(0, equalsIndex).trim();
                                 const value = trimmedLine.substring(equalsIndex + 1).trim();
-                                
-                                // Entferne Anführungszeichen falls vorhanden
                                 const cleanValue = value.replace(/^['"](.*)['"]$/, '$1');
                                 
                                 if (key && cleanValue) {
@@ -122,7 +118,6 @@ try {
         for (const file of commandFiles) {
             try {
                 const filePath = path.join(commandsPath, file);
-                // Cache leeren für Hot-Reloading
                 delete require.cache[require.resolve(filePath)];
                 const command = require(filePath);
                 
@@ -155,7 +150,6 @@ try {
         for (const file of eventFiles) {
             try {
                 const filePath = path.join(eventsPath, file);
-                // Cache leeren für Hot-Reloading
                 delete require.cache[require.resolve(filePath)];
                 const event = require(filePath);
                 
@@ -179,10 +173,6 @@ try {
 // Verbindung herstellen MIT Fehlerbehandlung
 client.login(process.env.DISCORD_TOKEN).catch(error => {
     console.error('❌ FEHLER BEIM LOGIN:', error.message);
-    console.log('💡 Mögliche Ursachen:');
-    console.log('1. DISCORD_TOKEN ist ungültig oder abgelaufen');
-    console.log('2. Bot hat keine Berechtigungen');
-    console.log('3. Netzwerkprobleme');
     process.exit(1);
 });
 
@@ -192,29 +182,27 @@ client.once('ready', async () => {
     console.log(`📊 Servern: ${client.guilds.cache.size}`);
     console.log(`👥 Nutzer: ${client.users.cache.size}`);
     
-    // Zeige konfigurierte Werte
     console.log(`\n⚙️  Konfiguration:`);
     console.log(`🏠 Guild ID: ${process.env.GUILD_ID || 'Nicht gesetzt'}`);
     console.log(`🎫 Ticket Kategorie: ${process.env.TICKET_CATEGORY_ID || 'Nicht gesetzt'}`);
     console.log(`🛡️ Support Rolle: ${process.env.SUPPORT_ROLE_ID || 'Nicht gesetzt'}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
 
-    // YouTube Alerts starten (nur über Environment Variablen)
-if (process.env.YOUTUBE_API_KEY && process.env.YOUTUBE_CHANNEL_ID && process.env.ALERT_CHANNEL_ID) {
-    const ytCfg = {
-        apiKey: process.env.YOUTUBE_API_KEY,
-        channelId: process.env.YOUTUBE_CHANNEL_ID,
-        alertChannelId: process.env.ALERT_CHANNEL_ID,
-        pingRoleId: process.env.PING_ROLE_ID || null,
-        intervalMinutes: Number(process.env.INTERVAL_MINUTES || 5)
-    };
-    startYouTubeAlerts(client, ytCfg);
-    console.log(`✅ YouTube Alerts aktiv für Channel ${ytCfg.channelId}, Intervall ${ytCfg.intervalMinutes}min`);
-} else {
-    console.log('ℹ️ YouTube Alerts nicht konfiguriert (prüfe YOUTUBE_API_KEY, YOUTUBE_CHANNEL_ID, ALERT_CHANNEL_ID in Portainer).');
-}
+    // YouTube Alerts starten
+    if (process.env.YOUTUBE_API_KEY && process.env.YOUTUBE_CHANNEL_ID && process.env.ALERT_CHANNEL_ID) {
+        const ytCfg = {
+            apiKey: process.env.YOUTUBE_API_KEY,
+            channelId: process.env.YOUTUBE_CHANNEL_ID,
+            alertChannelId: process.env.ALERT_CHANNEL_ID,
+            pingRoleId: process.env.PING_ROLE_ID || null,
+            intervalMinutes: Number(process.env.INTERVAL_MINUTES || 5)
+        };
+        startYouTubeAlerts(client, ytCfg);
+        console.log(`✅ YouTube Alerts aktiv für Channel ${ytCfg.channelId}, Intervall ${ytCfg.intervalMinutes}min`);
+    } else {
+        console.log('ℹ️ YouTube Alerts nicht konfiguriert.');
+    }
 
-    
     // Befehle registrieren
     try {
         console.log('\n🔄 Starte Befehlsregistrierung...');
@@ -224,70 +212,45 @@ if (process.env.YOUTUBE_API_KEY && process.env.YOUTUBE_CHANNEL_ID && process.env
 
         if (fs.existsSync(commandsPath)) {
             const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-
             for (const file of commandFiles) {
                 try {
                     const command = require(path.join(commandsPath, file));
-                    
                     if (commandNames.has(command.data.name)) {
                         console.log(`❌ Überspringe doppelten Befehl: ${command.data.name}`);
                         continue;
                     }
-                    
                     commands.push(command.data.toJSON());
                     commandNames.add(command.data.name);
                     console.log(`✅ Befehl vorbereitet: ${command.data.name}`);
-                    
                 } catch (error) {
                     console.error(`❌ Fehler in ${file}:`, error.message);
                 }
             }
         }
 
-        // Global registrieren
-        await client.application.commands.set(commands);
-        console.log(`✅ ${commands.length} Befehle global registriert!`);
-        
-    } catch (error) {
-        console.error('❌ Fehler beim globalen Registrieren:', error.message);
-        
-        // Fallback: Für spezifischen Server registrieren
-        try {
-            let targetGuild = null;
-            
-            if (process.env.GUILD_ID) {
-                targetGuild = await client.guilds.fetch(process.env.GUILD_ID).catch(() => null);
-            }
-            
-            if (!targetGuild) {
-                targetGuild = client.guilds.cache.first();
-            }
-            
-            if (targetGuild) {
-                await targetGuild.commands.set(commands);
-                console.log(`✅ ${commands.length} Befehle auf Server "${targetGuild.name}" registriert!`);
+        if (process.env.GUILD_ID) {
+            const guild = await client.guilds.fetch(process.env.GUILD_ID).catch(() => null);
+            if (guild) {
+                await guild.commands.set(commands);
+                console.log(`✅ ${commands.length} Befehle auf Server "${guild.name}" registriert!`);
             } else {
-                console.log('⚠️  Kein Server für Fallback-Registrierung verfügbar');
+                await client.application.commands.set(commands);
+                console.log(`✅ ${commands.length} Befehle global registriert! (kann bis zu 1h dauern)`);
             }
-        } catch (fallbackError) {
-            console.error('❌ Fallback-Registrierung fehlgeschlagen:', fallbackError.message);
+        } else {
+            await client.application.commands.set(commands);
+            console.log(`✅ ${commands.length} Befehle global registriert! (kann bis zu 1h dauern)`);
         }
+
+    } catch (error) {
+        console.error('❌ Fehler bei der Befehlsregistrierung:', error.message);
     }
 });
 
-// Erweiterte Error Handling
-client.on('error', (error) => {
-    console.error('❌ Client Error:', error.message);
-});
-
-client.on('warn', (warning) => {
-    console.warn('⚠️  Client Warning:', warning);
-});
-
-process.on('unhandledRejection', (error) => {
-    console.error('❌ Unhandled Rejection:', error.message);
-});
-
+// Error Handling
+client.on('error', (error) => console.error('❌ Client Error:', error.message));
+client.on('warn', (warning) => console.warn('⚠️  Client Warning:', warning));
+process.on('unhandledRejection', (error) => console.error('❌ Unhandled Rejection:', error.message));
 process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught Exception:', error.message);
     process.exit(1);
@@ -299,7 +262,6 @@ process.on('SIGINT', () => {
     client.destroy();
     process.exit(0);
 });
-
 process.on('SIGTERM', () => {
     console.log('\n🛑 Bot wird beendet...');
     client.destroy();
