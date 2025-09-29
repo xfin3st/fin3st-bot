@@ -2,7 +2,6 @@ const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const { startYouTubeAlerts } = require('./features/youtubeAlerts');
-const config = require('./config.json');
 
 // Funktion zum Laden von Umgebungsvariablen aus verschiedenen Quellen
 function loadEnvironmentVariables() {
@@ -28,52 +27,17 @@ function loadEnvironmentVariables() {
             }
         }
     } catch (dotenvError) {
-        console.log('⚠️  dotenv fehlgeschlagen:', dotenvError.message);
+        console.log('⚠️ dotenv fehlgeschlagen:', dotenvError.message);
     }
 
     if (!envLoaded) {
-        for (const envPath of envPaths) {
-            if (fs.existsSync(envPath)) {
-                try {
-                    console.log(`📁 Manuelles Laden versuchen: ${envPath}`);
-                    const envContent = fs.readFileSync(envPath, 'utf8');
-                    const envLines = envContent.split('\n');
-                    
-                    for (const line of envLines) {
-                        const trimmedLine = line.trim();
-                        if (trimmedLine && !trimmedLine.startsWith('#')) {
-                            const equalsIndex = trimmedLine.indexOf('=');
-                            if (equalsIndex > 0) {
-                                const key = trimmedLine.substring(0, equalsIndex).trim();
-                                const value = trimmedLine.substring(equalsIndex + 1).trim();
-                                const cleanValue = value.replace(/^['"](.*)['"]$/, '$1');
-                                
-                                if (key && cleanValue) {
-                                    process.env[key] = cleanValue;
-                                    console.log(`   ${key}=${cleanValue.replace(/.(?=.{4})/g, '*')}`);
-                                }
-                            }
-                        }
-                    }
-                    console.log(`✅ Manuell geladen von: ${envPath}`);
-                    envLoaded = true;
-                    break;
-                } catch (readError) {
-                    console.log(`❌ Fehler beim manuellen Laden von ${envPath}:`, readError.message);
-                }
-            }
-        }
-    }
-
-    if (!envLoaded) {
-        console.log('⚠️  Keine .env Datei gefunden, verwende Prozessvariablen');
+        console.log('⚠️ Keine .env Datei gefunden, verwende Prozessvariablen');
     }
 }
 
-// Umgebungsvariablen laden
 loadEnvironmentVariables();
 
-// DEBUG: Zeige alle relevanten Umgebungsvariablen
+// DEBUG-Ausgabe
 console.log('\n🔍 Finale Umgebungsvariablen:');
 const importantVars = ['DISCORD_TOKEN', 'TICKET_CATEGORY_ID', 'SUPPORT_ROLE_ID', 'GUILD_ID', 'NODE_ENV'];
 importantVars.forEach(varName => {
@@ -85,13 +49,12 @@ importantVars.forEach(varName => {
     }
 });
 
-// Fallback für kritische Variablen
 if (!process.env.DISCORD_TOKEN) {
     console.error('❌ KRITISCH: DISCORD_TOKEN fehlt!');
     process.exit(1);
 }
 
-// Erstelle einen neuen Client
+// Client erstellen
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -105,72 +68,53 @@ const client = new Client({
     partials: ['MESSAGE', 'CHANNEL', 'REACTION']
 });
 
-// Sammlung für Befehle
 client.commands = new Collection();
 
-// Lade Befehle MIT Fehlerbehandlung
+// Commands laden
 const commandsPath = path.join(__dirname, 'commands');
+let commandList = [];
 try {
     if (fs.existsSync(commandsPath)) {
         const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-        const loadedCommands = new Set();
-
         for (const file of commandFiles) {
-            try {
-                const filePath = path.join(commandsPath, file);
-                delete require.cache[require.resolve(filePath)];
-                const command = require(filePath);
-                
-                if (loadedCommands.has(command.data.name)) {
-                    console.log(`❌ Überspringe doppelten Befehl: ${command.data.name} (in ${file})`);
-                    continue;
-                }
-                
-                client.commands.set(command.data.name, command);
-                loadedCommands.add(command.data.name);
-                console.log(`✅ Befehl geladen: ${command.data.name}`);
-                
-            } catch (error) {
-                console.error(`❌ Fehler beim Laden von ${file}:`, error.message);
-            }
+            const filePath = path.join(commandsPath, file);
+            delete require.cache[require.resolve(filePath)];
+            const command = require(filePath);
+            client.commands.set(command.data.name, command);
+            commandList.push(command.data.toJSON());
+            console.log(`✅ Befehl geladen: ${command.data.name}`);
         }
     } else {
-        console.log('⚠️  commands Ordner nicht gefunden');
+        console.log('⚠️ commands-Ordner nicht gefunden');
     }
 } catch (error) {
-    console.log('⚠️  Fehler beim commands Ordner:', error.message);
+    console.log('⚠️ Fehler beim Laden der Commands:', error.message);
 }
 
-// Lade Events MIT Fehlerbehandlung
+// Events laden
 const eventsPath = path.join(__dirname, 'events');
 try {
     if (fs.existsSync(eventsPath)) {
         const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
-        
         for (const file of eventFiles) {
-            try {
-                const filePath = path.join(eventsPath, file);
-                delete require.cache[require.resolve(filePath)];
-                const event = require(filePath);
-                
-                if (event.once) {
-                    client.once(event.name, (...args) => event.execute(...args, client));
-                } else {
-                    client.on(event.name, (...args) => event.execute(...args, client));
-                }
-                console.log(`✅ Event geladen: ${event.name}`);
-            } catch (error) {
-                console.error(`❌ Fehler beim Laden von Event ${file}:`, error.message);
+            const filePath = path.join(eventsPath, file);
+            delete require.cache[require.resolve(filePath)];
+            const event = require(filePath);
+            if (event.once) {
+                client.once(event.name, (...args) => event.execute(...args, client));
+            } else {
+                client.on(event.name, (...args) => event.execute(...args, client));
             }
+            console.log(`✅ Event geladen: ${event.name}`);
         }
     } else {
-        console.log('⚠️  events Ordner nicht gefunden');
+        console.log('⚠️ events-Ordner nicht gefunden');
     }
 } catch (error) {
-    console.log('⚠️  Fehler beim events Ordner:', error.message);
+    console.log('⚠️ Fehler beim Laden der Events:', error.message);
 }
 
-// Verbindung herstellen MIT Fehlerbehandlung
+// Bot starten
 client.login(process.env.DISCORD_TOKEN).catch(error => {
     console.error('❌ FEHLER BEIM LOGIN:', error.message);
     process.exit(1);
@@ -181,8 +125,8 @@ client.once('ready', async () => {
     console.log(`\n🎉 Bot erfolgreich eingeloggt als ${client.user.tag}`);
     console.log(`📊 Servern: ${client.guilds.cache.size}`);
     console.log(`👥 Nutzer: ${client.users.cache.size}`);
-    
-    console.log(`\n⚙️  Konfiguration:`);
+
+    console.log(`\n⚙️ Konfiguration:`);
     console.log(`🏠 Guild ID: ${process.env.GUILD_ID || 'Nicht gesetzt'}`);
     console.log(`🎫 Ticket Kategorie: ${process.env.TICKET_CATEGORY_ID || 'Nicht gesetzt'}`);
     console.log(`🛡️ Support Rolle: ${process.env.SUPPORT_ROLE_ID || 'Nicht gesetzt'}`);
@@ -200,56 +144,30 @@ client.once('ready', async () => {
         startYouTubeAlerts(client, ytCfg);
         console.log(`✅ YouTube Alerts aktiv für Channel ${ytCfg.channelId}, Intervall ${ytCfg.intervalMinutes}min`);
     } else {
-        console.log('ℹ️ YouTube Alerts nicht konfiguriert.');
+        console.log('ℹ️ YouTube Alerts nicht konfiguriert (prüfe YOUTUBE_API_KEY, YOUTUBE_CHANNEL_ID, ALERT_CHANNEL_ID).');
     }
 
-    // Befehle registrieren
+    // Nur Guild-Commands registrieren
     try {
-        console.log('\n🔄 Starte Befehlsregistrierung...');
-        
-        const commands = [];
-        const commandNames = new Set();
-
-        if (fs.existsSync(commandsPath)) {
-            const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-            for (const file of commandFiles) {
-                try {
-                    const command = require(path.join(commandsPath, file));
-                    if (commandNames.has(command.data.name)) {
-                        console.log(`❌ Überspringe doppelten Befehl: ${command.data.name}`);
-                        continue;
-                    }
-                    commands.push(command.data.toJSON());
-                    commandNames.add(command.data.name);
-                    console.log(`✅ Befehl vorbereitet: ${command.data.name}`);
-                } catch (error) {
-                    console.error(`❌ Fehler in ${file}:`, error.message);
-                }
-            }
-        }
-
         if (process.env.GUILD_ID) {
             const guild = await client.guilds.fetch(process.env.GUILD_ID).catch(() => null);
             if (guild) {
-                await guild.commands.set(commands);
-                console.log(`✅ ${commands.length} Befehle auf Server "${guild.name}" registriert!`);
+                await guild.commands.set(commandList);
+                console.log(`✅ ${commandList.length} Befehle nur auf Server "${guild.name}" registriert!`);
             } else {
-                await client.application.commands.set(commands);
-                console.log(`✅ ${commands.length} Befehle global registriert! (kann bis zu 1h dauern)`);
+                console.log('❌ Konnte Guild nicht finden – prüfe deine GUILD_ID!');
             }
         } else {
-            await client.application.commands.set(commands);
-            console.log(`✅ ${commands.length} Befehle global registriert! (kann bis zu 1h dauern)`);
+            console.log('⚠️ Keine GUILD_ID gesetzt – keine Befehle registriert.');
         }
-
     } catch (error) {
-        console.error('❌ Fehler bei der Befehlsregistrierung:', error.message);
+        console.error('❌ Fehler beim Registrieren der Guild-Commands:', error.message);
     }
 });
 
-// Error Handling
+// Fehler-Handling
 client.on('error', (error) => console.error('❌ Client Error:', error.message));
-client.on('warn', (warning) => console.warn('⚠️  Client Warning:', warning));
+client.on('warn', (warning) => console.warn('⚠️ Client Warning:', warning));
 process.on('unhandledRejection', (error) => console.error('❌ Unhandled Rejection:', error.message));
 process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught Exception:', error.message);
