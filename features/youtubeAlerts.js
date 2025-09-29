@@ -23,40 +23,34 @@ async function writeLast(obj) {
   await fs.writeFile(LAST_FILE, JSON.stringify(obj, null, 2), 'utf8');
 }
 
-function rssUrl(channelId) {
-  return `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
-}
-
 function ytThumb(videoId) {
   // hqdefault ist stabil; maxresdefault existiert nicht immer
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
-async function fetchLatestEntry(channelId) {
-  const res = await fetch(rssUrl(channelId), { headers: { 'User-Agent': 'DiscordBot/1.0' } });
-  if (!res.ok) throw new Error(`RSS fetch failed: ${res.status}`);
-  const xml = await res.text();
+async function fetchLatestEntry(channelId, apiKey) {
+  const url = `https://www.googleapis.com/youtube/v3/search?key=${apiKey}&channelId=${channelId}&part=snippet,id&order=date&maxResults=1`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'DiscordBot/1.0' } });
+  if (!res.ok) throw new Error(`YouTube API fetch failed: ${res.status}`);
+  const data = await res.json();
 
-  // Einfaches Parsing des ersten <entry>
-  const idMatch = xml.match(/<yt:videoId>([^<]+)<\/yt:videoId>/);
-  if (!idMatch) return null;
+  if (!data.items || data.items.length === 0) return null;
 
-  const titleMatch = xml.match(/<entry>[\s\S]*?<title>([^<]+)<\/title>/);
-  const linkMatch = xml.match(/<entry>[\s\S]*?<link[^>]+href="([^"]+)"/);
-  const publishedMatch = xml.match(/<entry>[\s\S]*?<published>([^<]+)<\/published>/);
+  const video = data.items[0];
+  if (!video.id || !video.id.videoId) return null;
 
   return {
-    videoId: idMatch[1],
-    title: titleMatch ? titleMatch[1] : 'Neues Video',
-    url: linkMatch ? linkMatch[1] : `https://www.youtube.com/watch?v=${idMatch[1]}`,
-    publishedIso: publishedMatch ? publishedMatch[1] : null,
+    videoId: video.id.videoId,
+    title: video.snippet?.title || 'Neues Video',
+    url: `https://www.youtube.com/watch?v=${video.id.videoId}`,
+    publishedIso: video.snippet?.publishedAt || null,
   };
 }
 
 /**
  * Startet den YouTube-Alert-Poller.
  * @param {import('discord.js').Client} client
- * @param {{channelId:string, alertChannelId:string, intervalMinutes:number, pingRoleId?:string}} cfg
+ * @param {{apiKey:string, channelId:string, alertChannelId:string, intervalMinutes:number, pingRoleId?:string}} cfg
  */
 async function startYouTubeAlerts(client, cfg) {
   // Channel sicher fetchen (nicht nur aus Cache)
@@ -75,7 +69,7 @@ async function startYouTubeAlerts(client, cfg) {
 
   async function checkOnce() {
     try {
-      const latest = await fetchLatestEntry(cfg.channelId);
+      const latest = await fetchLatestEntry(cfg.channelId, cfg.apiKey);
       if (!latest) return;
 
       // Bei erstem Start ohne gespeicherte ID posten wir genau EINMAL das neueste Video
