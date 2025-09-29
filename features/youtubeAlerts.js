@@ -24,7 +24,6 @@ async function writeLast(obj) {
 }
 
 function ytThumb(videoId) {
-  // hqdefault ist stabil; maxresdefault existiert nicht immer
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
@@ -49,19 +48,29 @@ async function fetchLatestEntry(channelId, apiKey) {
 
 /**
  * Startet den YouTube-Alert-Poller.
+ * Holt Config direkt aus Environment Variablen (Portainer).
  * @param {import('discord.js').Client} client
- * @param {{apiKey:string, channelId:string, alertChannelId:string, intervalMinutes:number, pingRoleId?:string}} cfg
  */
-async function startYouTubeAlerts(client, cfg) {
-  // Channel sicher fetchen (nicht nur aus Cache)
+async function startYouTubeAlerts(client) {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  const channelId = process.env.YOUTUBE_CHANNEL_ID;
+  const alertChannelId = process.env.ALERT_CHANNEL_ID;
+  const pingRoleId = process.env.PING_ROLE_ID || null;
+  const intervalMinutes = Number(process.env.INTERVAL_MINUTES || 5);
+
+  if (!apiKey || !channelId || !alertChannelId) {
+    console.error('❌ YouTubeAlerts: fehlende Variablen (YOUTUBE_API_KEY, YOUTUBE_CHANNEL_ID, ALERT_CHANNEL_ID)');
+    return;
+  }
+
   let alertsChan = null;
   try {
-    alertsChan = await client.channels.fetch(cfg.alertChannelId);
+    alertsChan = await client.channels.fetch(alertChannelId);
   } catch {
-    alertsChan = client.channels.cache.get(cfg.alertChannelId) || null;
+    alertsChan = client.channels.cache.get(alertChannelId) || null;
   }
   if (!alertsChan) {
-    console.error('YouTubeAlerts: alertChannelId nicht gefunden oder keine Rechte.');
+    console.error('❌ YouTubeAlerts: alertChannelId nicht gefunden oder keine Rechte.');
     return;
   }
 
@@ -69,10 +78,9 @@ async function startYouTubeAlerts(client, cfg) {
 
   async function checkOnce() {
     try {
-      const latest = await fetchLatestEntry(cfg.channelId, cfg.apiKey);
+      const latest = await fetchLatestEntry(channelId, apiKey);
       if (!latest) return;
 
-      // Bei erstem Start ohne gespeicherte ID posten wir genau EINMAL das neueste Video
       if (last.latestId !== latest.videoId) {
         const ts = latest.publishedIso ? Math.floor(new Date(latest.publishedIso).getTime() / 1000) : null;
 
@@ -89,21 +97,23 @@ async function startYouTubeAlerts(client, cfg) {
           .setFooter({ text: 'YouTube Alert' })
           .setTimestamp(new Date());
 
-        const mention = cfg.pingRoleId ? `<@&${cfg.pingRoleId}> ` : '';
+        const mention = pingRoleId ? `<@&${pingRoleId}> ` : '';
         await alertsChan.send({ content: `${mention}Neues Video ist online!`, embeds: [embed] });
 
         last.latestId = latest.videoId;
         await writeLast(last);
       }
     } catch (e) {
-      console.error('YouTubeAlerts check failed:', e);
+      console.error('❌ YouTubeAlerts check failed:', e.message);
     }
   }
 
   // beim Start sofort prüfen, danach im Intervall
   await checkOnce();
-  const intervalMs = Math.max(1, Number(cfg.intervalMinutes || 5)) * 60_000;
+  const intervalMs = Math.max(1, intervalMinutes) * 60_000;
   setInterval(checkOnce, intervalMs);
+
+  console.log(`✅ YouTube Alerts gestartet für Channel ${channelId} (Intervall: ${intervalMinutes}min)`);
 }
 
 module.exports = { startYouTubeAlerts };
