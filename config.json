@@ -1,13 +1,5 @@
 {
-    "clientId": "1202513088868515860",
-    "guildId": "1202478042212204544",
-    "welcomeChannelId": "1202496784644177950",
-    "welcomeRoleId": "1412183469219385574",
-
-    "youtubeAlerts": {
-        "channelId": "UC1-VOKyTJrgLiBeiJqzeIUQ",        
-        "alertChannelId": "1421128721330475088",   
-        "intervalMinutes": 5
-                                    
-    }
+  "clientId": "DEINE_CLIENT_ID",
+  "welcomeChannelId": "DEIN_CHANNEL_ID",
+  "welcomeRoleId": "DEINE_ROLE_ID"
 }
