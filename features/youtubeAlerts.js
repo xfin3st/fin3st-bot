@@ -9,7 +9,6 @@ const path = require('path');
 
 const LAST_FILE = path.join(process.cwd(), 'data', 'youtube_last.json');
 
-
 async function readLast() {
   try {
     const txt = await fs.readFile(LAST_FILE, 'utf8');
@@ -98,8 +97,15 @@ async function startYouTubeAlerts(client) {
           .setFooter({ text: 'YouTube Alert' })
           .setTimestamp(new Date());
 
-        const mention = pingRoleId ? `<@&${pingRoleId}> ` : '';
-        await alertsChan.send({ content: `${mention}Neues Video ist online!`, embeds: [embed] });
+        // 1. Embed senden
+        await alertsChan.send({ embeds: [embed] });
+
+        // 2. Danach Ping mit Titel + Link
+        if (pingRoleId) {
+          await alertsChan.send(
+            `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!\n▶️ ${latest.url}`
+          );
+        }
 
         last.latestId = latest.videoId;
         await writeLast(last);
