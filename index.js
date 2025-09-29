@@ -199,12 +199,21 @@ client.once('ready', async () => {
     console.log(`🛡️ Support Rolle: ${process.env.SUPPORT_ROLE_ID || 'Nicht gesetzt'}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
 
-    // YouTube Alerts starten
-    if (config.youtubeAlerts?.channelId && config.youtubeAlerts?.alertChannelId) {
-        startYouTubeAlerts(client, config.youtubeAlerts);
-    } else {
-        console.log('ℹ️ YouTube Alerts nicht konfiguriert.');
-    }
+    // YouTube Alerts starten (nur über Environment Variablen)
+if (process.env.YOUTUBE_API_KEY && process.env.YOUTUBE_CHANNEL_ID && process.env.ALERT_CHANNEL_ID) {
+    const ytCfg = {
+        apiKey: process.env.YOUTUBE_API_KEY,
+        channelId: process.env.YOUTUBE_CHANNEL_ID,
+        alertChannelId: process.env.ALERT_CHANNEL_ID,
+        pingRoleId: process.env.PING_ROLE_ID || null,
+        intervalMinutes: Number(process.env.INTERVAL_MINUTES || 5)
+    };
+    startYouTubeAlerts(client, ytCfg);
+    console.log(`✅ YouTube Alerts aktiv für Channel ${ytCfg.channelId}, Intervall ${ytCfg.intervalMinutes}min`);
+} else {
+    console.log('ℹ️ YouTube Alerts nicht konfiguriert (prüfe YOUTUBE_API_KEY, YOUTUBE_CHANNEL_ID, ALERT_CHANNEL_ID in Portainer).');
+}
+
     
     // Befehle registrieren
     try {
