@@ -23,22 +23,26 @@ function ytThumb(videoId) {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
-async function fetchLatestEntry(channelId, apiKey) {
-  const url = `https://www.googleapis.com/youtube/v3/search?key=${apiKey}&channelId=${channelId}&part=snippet,id&order=date&maxResults=1`;
+async function fetchLatestEntry(playlistId, apiKey) {
+  const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=1&key=${apiKey}`;
   const res = await fetch(url, { headers: { 'User-Agent': 'DiscordBot/1.0' } });
-  if (!res.ok) throw new Error(`YouTube API fetch failed: ${res.status}`);
-  const data = await res.json();
 
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`YouTube API fetch failed: ${res.status} - ${txt}`);
+  }
+
+  const data = await res.json();
   if (!data.items || data.items.length === 0) return null;
 
-  const video = data.items[0];
-  if (!video.id || !video.id.videoId) return null;
+  const video = data.items[0].snippet;
+  if (!video || !video.resourceId?.videoId) return null;
 
   return {
-    videoId: video.id.videoId,
-    title: video.snippet?.title || 'Neues Video',
-    url: `https://www.youtube.com/watch?v=${video.id.videoId}`,
-    publishedIso: video.snippet?.publishedAt || null,
+    videoId: video.resourceId.videoId,
+    title: video.title || 'Neues Video',
+    url: `https://www.youtube.com/watch?v=${video.resourceId.videoId}`,
+    publishedIso: video.publishedAt || null,
   };
 }
 
@@ -50,15 +54,15 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     const apiKey = process.env.YOUTUBE_API_KEY;
-    const channelId = process.env.YOUTUBE_CHANNEL_ID;
+    const playlistId = process.env.YOUTUBE_PLAYLIST_ID; // ⚠️ statt channelId
     const alertChannelId = process.env.ALERT_CHANNEL_ID;
     const pingRoleId = process.env.PING_ROLE_ID || null;
 
-    if (!apiKey || !channelId || !alertChannelId) {
-      return interaction.editReply('❌ API Key oder Channel-ID fehlt.');
+    if (!apiKey || !playlistId || !alertChannelId) {
+      return interaction.editReply('❌ API Key oder Playlist-ID fehlt.');
     }
 
-    const latest = await fetchLatestEntry(channelId, apiKey);
+    const latest = await fetchLatestEntry(playlistId, apiKey);
     if (!latest) return interaction.editReply('❌ Kein Video gefunden.');
 
     const ts = latest.publishedIso ? Math.floor(new Date(latest.publishedIso).getTime() / 1000) : null;
@@ -78,15 +82,12 @@ module.exports = {
 
     const alertsChan = await interaction.client.channels.fetch(alertChannelId);
 
-    // Embed senden
-    await alertsChan.send({ embeds: [embed] });
+    // Embed + Ping in EINER Nachricht
+    const content = pingRoleId
+      ? `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!`
+      : null;
 
-    // Ping separat
-    if (pingRoleId) {
-      await alertsChan.send(
-        `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!\n▶️ ${latest.url}`
-      );
-    }
+    await alertsChan.send({ content, embeds: [embed] });
 
     // Letzte ID speichern
     const last = await readLast();
