@@ -83,52 +83,50 @@ async function startYouTubeAlerts(client) {
   const last = await readLast();
 
   async function checkOnce() {
-    try {
-      const latest = await fetchLatestEntry(channelId, apiKey);
-      if (!latest) return;
+  try {
+    const latest = await fetchLatestEntry(channelId, apiKey);
+    if (!latest) return;
 
-      // Wenn noch kein gespeicherter Wert vorhanden ist → nur merken, nicht posten
-      if (!last.latestId) {
-        last.latestId = latest.videoId;
-        await writeLast(last);
-        return;
-      }
-
-      // Nur posten, wenn sich die Video-ID geändert hat
-      if (last.latestId !== latest.videoId) {
-        const ts = latest.publishedIso ? Math.floor(new Date(latest.publishedIso).getTime() / 1000) : null;
-
-        const embed = new EmbedBuilder()
-          .setColor(0xff0000)
-          .setTitle(latest.title)
-          .setURL(latest.url)
-          .setImage(ytThumb(latest.videoId))
-          .setDescription(
-            ts
-              ? `Neu bei **JP Performance** – veröffentlicht <t:${ts}:R>.\n\n▶️ ${latest.url}`
-              : `Neu bei **JP Performance**!\n\n▶️ ${latest.url}`
-          )
-          .setFooter({ text: 'YouTube Alert' })
-          .setTimestamp(new Date());
-
-        // 1. Embed senden
-        await alertsChan.send({ embeds: [embed] });
-
-        // 2. Danach Ping separat mit Titel + Link
-        if (pingRoleId) {
-          await alertsChan.send(
-            `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!\n▶️ ${latest.url}`
-          );
-        }
-
-        // Neuste ID speichern
-        last.latestId = latest.videoId;
-        await writeLast(last);
-      }
-    } catch (e) {
-      console.error('❌ YouTubeAlerts check failed:', e.message);
+    // Wenn noch kein gespeicherter Wert vorhanden ist → nur merken, nicht posten
+    if (!last.latestId) {
+      last.latestId = latest.videoId;
+      await writeLast(last);
+      return;
     }
+
+    // Nur posten, wenn sich die Video-ID geändert hat
+    if (last.latestId !== latest.videoId) {
+      const ts = latest.publishedIso ? Math.floor(new Date(latest.publishedIso).getTime() / 1000) : null;
+
+      const embed = new EmbedBuilder()
+        .setColor(0xff0000)
+        .setTitle(latest.title)
+        .setURL(latest.url)
+        .setImage(ytThumb(latest.videoId))
+        .setDescription(
+          ts
+            ? `Neu bei **JP Performance** – veröffentlicht <t:${ts}:R>.\n\n▶️ ${latest.url}`
+            : `Neu bei **JP Performance**!\n\n▶️ ${latest.url}`
+        )
+        .setFooter({ text: 'YouTube Alert' })
+        .setTimestamp(new Date());
+
+      // Embed + Rollen-Ping in EINER Nachricht
+      const content = pingRoleId
+        ? `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!\n▶️ ${latest.url}`
+        : null;
+
+      await alertsChan.send({ content, embeds: [embed] });
+
+      // Neuste ID speichern
+      last.latestId = latest.videoId;
+      await writeLast(last);
+    }
+  } catch (e) {
+    console.error('❌ YouTubeAlerts check failed:', e.message);
   }
+}
+
 
   // Beim Start sofort prüfen, danach im Intervall
   await checkOnce();
