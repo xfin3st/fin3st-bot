@@ -30,7 +30,12 @@ function ytThumb(videoId) {
 async function fetchLatestEntry(channelId, apiKey) {
   const url = `https://www.googleapis.com/youtube/v3/search?key=${apiKey}&channelId=${channelId}&part=snippet,id&order=date&maxResults=1`;
   const res = await fetch(url, { headers: { 'User-Agent': 'DiscordBot/1.0' } });
-  if (!res.ok) throw new Error(`YouTube API fetch failed: ${res.status}`);
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`YouTube API fetch failed: ${res.status} - ${txt}`);
+  }
+
   const data = await res.json();
 
   if (!data.items || data.items.length === 0) return null;
@@ -45,6 +50,7 @@ async function fetchLatestEntry(channelId, apiKey) {
     publishedIso: video.snippet?.publishedAt || null,
   };
 }
+
 
 /**
  * Startet den YouTube-Alert-Poller.
