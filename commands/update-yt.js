@@ -1,8 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { readFile, writeFile, mkdir } = require('fs/promises');
 const path = require('path');
+const { XMLParser } = require('fast-xml-parser');
 
-// Pfad zur Datei, wo die letzte Video-ID gespeichert ist
 const LAST_FILE = path.join(process.cwd(), 'data', 'youtube_last.json');
 
 async function readLast() {
@@ -23,49 +23,47 @@ function ytThumb(videoId) {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
-async function fetchLatestEntry(playlistId, apiKey) {
-  const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=1&key=${apiKey}`;
+async function fetchLatestEntry(channelId) {
+  const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
   const res = await fetch(url, { headers: { 'User-Agent': 'DiscordBot/1.0' } });
+  if (!res.ok) throw new Error(`YouTube RSS fetch failed: ${res.status}`);
+  const xml = await res.text();
 
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`YouTube API fetch failed: ${res.status} - ${txt}`);
-  }
+  const parser = new XMLParser({ ignoreAttributes: false });
+  const data = parser.parse(xml);
 
-  const data = await res.json();
-  if (!data.items || data.items.length === 0) return null;
-
-  const video = data.items[0].snippet;
-  if (!video || !video.resourceId?.videoId) return null;
+  const entry = data.feed?.entry?.[0] || data.feed?.entry;
+  if (!entry) return null;
 
   return {
-    videoId: video.resourceId.videoId,
-    title: video.title || 'Neues Video',
-    url: `https://www.youtube.com/watch?v=${video.resourceId.videoId}`,
-    publishedIso: video.publishedAt || null,
+    videoId: entry['yt:videoId'],
+    title: entry.title,
+    url: entry.link?.["@_href"] || `https://www.youtube.com/watch?v=${entry['yt:videoId']}`,
+    publishedIso: entry.published,
   };
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('update-yt')
-    .setDescription('Postet sofort das neueste YouTube-Video'),
+    .setDescription('Postet sofort das neueste YouTube-Video (RSS)'),
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const apiKey = process.env.YOUTUBE_API_KEY;
-    const playlistId = process.env.YOUTUBE_PLAYLIST_ID; // ⚠️ statt channelId
+    const channelId = process.env.YOUTUBE_CHANNEL_ID; // UC...
     const alertChannelId = process.env.ALERT_CHANNEL_ID;
     const pingRoleId = process.env.PING_ROLE_ID || null;
 
-    if (!apiKey || !playlistId || !alertChannelId) {
-      return interaction.editReply('❌ API Key oder Playlist-ID fehlt.');
+    if (!channelId || !alertChannelId) {
+      return interaction.editReply('❌ Channel-ID oder ALERT_CHANNEL_ID fehlt.');
     }
 
-    const latest = await fetchLatestEntry(playlistId, apiKey);
+    const latest = await fetchLatestEntry(channelId);
     if (!latest) return interaction.editReply('❌ Kein Video gefunden.');
 
-    const ts = latest.publishedIso ? Math.floor(new Date(latest.publishedIso).getTime() / 1000) : null;
+    const ts = latest.publishedIso
+      ? Math.floor(new Date(latest.publishedIso).getTime() / 1000)
+      : null;
 
     const embed = new EmbedBuilder()
       .setColor(0xff0000)
@@ -77,23 +75,21 @@ module.exports = {
           ? `Neu bei **JP Performance** – veröffentlicht <t:${ts}:R>.\n\n▶️ ${latest.url}`
           : `Neu bei **JP Performance**!\n\n▶️ ${latest.url}`
       )
-      .setFooter({ text: 'YouTube Alert' })
+      .setFooter({ text: 'YouTube Alert (RSS)' })
       .setTimestamp(new Date());
 
     const alertsChan = await interaction.client.channels.fetch(alertChannelId);
 
-    // Embed + Ping in EINER Nachricht
     const content = pingRoleId
       ? `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!`
       : null;
 
     await alertsChan.send({ content, embeds: [embed] });
 
-    // Letzte ID speichern
     const last = await readLast();
     last.latestId = latest.videoId;
     await writeLast(last);
 
-    await interaction.editReply('✅ Neueste Video wurde gepostet!');
+    await interaction.editReply('✅ Neueste Video wurde gepostet (RSS)!');
   },
 };
