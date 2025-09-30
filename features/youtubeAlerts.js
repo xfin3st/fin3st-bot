@@ -2,11 +2,9 @@
 const { EmbedBuilder } = require('discord.js');
 const fs = require('fs/promises');
 const path = require('path');
+const { XMLParser } = require('fast-xml-parser');
 
-// Für Node >=18 ist fetch global. Falls du Node 16 nutzt,
-// installiere zusätzlich "node-fetch" und entkommentiere die nächste Zeile:
-// const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
-
+// Pfad für Cache
 const LAST_FILE = path.join(process.cwd(), 'data', 'youtube_last.json');
 
 async function readLast() {
@@ -27,43 +25,41 @@ function ytThumb(videoId) {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
-async function fetchLatestEntry(playlistId, apiKey) {
-  const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=1&key=${apiKey}`;
+async function fetchLatestEntry(channelId) {
+  const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
   const res = await fetch(url, { headers: { 'User-Agent': 'DiscordBot/1.0' } });
-
   if (!res.ok) {
     const txt = await res.text();
-    throw new Error(`YouTube API fetch failed: ${res.status} - ${txt}`);
+    throw new Error(`YouTube RSS fetch failed: ${res.status} - ${txt}`);
   }
 
-  const data = await res.json();
-  if (!data.items || data.items.length === 0) return null;
+  const xml = await res.text();
+  const parser = new XMLParser({ ignoreAttributes: false });
+  const data = parser.parse(xml);
 
-  const video = data.items[0].snippet;
-  if (!video || !video.resourceId?.videoId) return null;
+  const entry = data.feed?.entry?.[0] || data.feed?.entry;
+  if (!entry) return null;
 
-  return {
-    videoId: video.resourceId.videoId,
-    title: video.title || 'Neues Video',
-    url: `https://www.youtube.com/watch?v=${video.resourceId.videoId}`,
-    publishedIso: video.publishedAt || null,
-  };
+  const videoId = entry['yt:videoId'];
+  const title = entry.title;
+  const urlVideo = entry.link?.["@_href"] || `https://www.youtube.com/watch?v=${videoId}`;
+  const publishedIso = entry.published;
+
+  return { videoId, title, url: urlVideo, publishedIso };
 }
 
 /**
- * Startet den YouTube-Alert-Poller.
- * Holt Config direkt aus Environment Variablen (Portainer).
+ * Startet den YouTube-Alert-Poller über RSS-Feed.
  * @param {import('discord.js').Client} client
  */
 async function startYouTubeAlerts(client) {
-  const apiKey = process.env.YOUTUBE_API_KEY;
-  const playlistId = process.env.YOUTUBE_PLAYLIST_ID; // ⚠️ statt channelId jetzt Playlist-ID (UU...)
+  const channelId = process.env.YOUTUBE_CHANNEL_ID; // ⚠️ Channel-ID (UC...)
   const alertChannelId = process.env.ALERT_CHANNEL_ID;
   const pingRoleId = process.env.PING_ROLE_ID || null;
   const intervalMinutes = Number(process.env.INTERVAL_MINUTES || 5);
 
-  if (!apiKey || !playlistId || !alertChannelId) {
-    console.error('❌ YouTubeAlerts: fehlende Variablen (YOUTUBE_API_KEY, YOUTUBE_PLAYLIST_ID, ALERT_CHANNEL_ID)');
+  if (!channelId || !alertChannelId) {
+    console.error('❌ YouTubeAlerts: fehlende Variablen (YOUTUBE_CHANNEL_ID, ALERT_CHANNEL_ID)');
     return;
   }
 
@@ -82,19 +78,19 @@ async function startYouTubeAlerts(client) {
 
   async function checkOnce() {
     try {
-      const latest = await fetchLatestEntry(playlistId, apiKey);
+      const latest = await fetchLatestEntry(channelId);
       if (!latest) return;
 
-      // Wenn noch kein gespeicherter Wert vorhanden ist → nur merken, nicht posten
       if (!last.latestId) {
         last.latestId = latest.videoId;
         await writeLast(last);
         return;
       }
 
-      // Nur posten, wenn sich die Video-ID geändert hat
       if (last.latestId !== latest.videoId) {
-        const ts = latest.publishedIso ? Math.floor(new Date(latest.publishedIso).getTime() / 1000) : null;
+        const ts = latest.publishedIso
+          ? Math.floor(new Date(latest.publishedIso).getTime() / 1000)
+          : null;
 
         const embed = new EmbedBuilder()
           .setColor(0xff0000)
@@ -106,17 +102,15 @@ async function startYouTubeAlerts(client) {
               ? `Neu bei **JP Performance** – veröffentlicht <t:${ts}:R>.\n\n▶️ ${latest.url}`
               : `Neu bei **JP Performance**!\n\n▶️ ${latest.url}`
           )
-          .setFooter({ text: 'YouTube Alert' })
+          .setFooter({ text: 'YouTube Alert (RSS)' })
           .setTimestamp(new Date());
 
-        // Embed + Ping in EINER Nachricht
         const content = pingRoleId
           ? `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!`
           : null;
 
         await alertsChan.send({ content, embeds: [embed] });
 
-        // Neuste ID speichern
         last.latestId = latest.videoId;
         await writeLast(last);
       }
@@ -125,12 +119,11 @@ async function startYouTubeAlerts(client) {
     }
   }
 
-  // Beim Start sofort prüfen, danach im Intervall
   await checkOnce();
   const intervalMs = Math.max(1, intervalMinutes) * 60_000;
   setInterval(checkOnce, intervalMs);
 
-  console.log(`✅ YouTube Alerts gestartet für Playlist ${playlistId} (Intervall: ${intervalMinutes}min)`);
+  console.log(`✅ YouTube Alerts (RSS) gestartet für Channel ${channelId} (Intervall: ${intervalMinutes}min)`);
 }
 
 module.exports = { startYouTubeAlerts };
