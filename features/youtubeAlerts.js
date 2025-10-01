@@ -52,11 +52,11 @@ async function fetchLatestEntry(channelId) {
  * Startet den YouTube-Alert-Poller über RSS-Feed.
  * @param {import('discord.js').Client} client
  */
-async function startYouTubeAlerts(client) {
-  const channelId = process.env.YOUTUBE_CHANNEL_ID; // ⚠️ Channel-ID (UC...)
-  const alertChannelId = process.env.ALERT_CHANNEL_ID;
-  const pingRoleId = process.env.PING_ROLE_ID || null;
-  const intervalMinutes = Number(process.env.INTERVAL_MINUTES || 5);
+async function startYouTubeAlerts(client, config = {}) {
+  const channelId = config.channelId || process.env.YOUTUBE_CHANNEL_ID;
+  const alertChannelId = config.alertChannelId || process.env.ALERT_CHANNEL_ID;
+  const pingRoleId = config.pingRoleId || process.env.PING_ROLE_ID || null;
+  const intervalMinutes = Number(config.intervalMinutes || process.env.INTERVAL_MINUTES || 5);
 
   if (!channelId || !alertChannelId) {
     console.error('❌ YouTubeAlerts: fehlende Variablen (YOUTUBE_CHANNEL_ID, ALERT_CHANNEL_ID)');
