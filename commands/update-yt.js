@@ -5,6 +5,7 @@ const { XMLParser } = require('fast-xml-parser');
 
 const LAST_FILE = path.join(process.cwd(), 'data', 'youtube_last.json');
 
+// Cache lesen
 async function readLast() {
   try {
     const txt = await readFile(LAST_FILE, 'utf8');
@@ -14,15 +15,18 @@ async function readLast() {
   }
 }
 
+// Cache schreiben
 async function writeLast(obj) {
   await mkdir(path.dirname(LAST_FILE), { recursive: true });
   await writeFile(LAST_FILE, JSON.stringify(obj, null, 2), 'utf8');
 }
 
+// Thumbnail-URL bauen
 function ytThumb(videoId) {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
+// Letztes Video aus YouTube-RSS holen
 async function fetchLatestEntry(channelId) {
   const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
   const res = await fetch(url, { headers: { 'User-Agent': 'DiscordBot/1.0' } });
@@ -43,14 +47,61 @@ async function fetchLatestEntry(channelId) {
   };
 }
 
+// Embed + Nachricht posten
+async function postLatestVideo(client, { channelId, alertChannelId, pingRoleId, manual = false }) {
+  const alertsChan = await client.channels.fetch(alertChannelId);
+  const last = await readLast();
+  const latest = await fetchLatestEntry(channelId);
+
+  if (!latest) {
+    if (manual) await alertsChan.send('❌ Kein Video gefunden.');
+    return false;
+  }
+
+  // Wenn kein neues Video & manueller Check → Info schicken
+  if (last.latestId === latest.videoId) {
+    if (manual) await alertsChan.send('ℹ️ Kein neues Video.');
+    return false;
+  }
+
+  const ts = latest.publishedIso ? Math.floor(new Date(latest.publishedIso).getTime() / 1000) : null;
+
+  const embed = new EmbedBuilder()
+    .setColor(0xff0000)
+    .setTitle(latest.title)
+    .setURL(latest.url)
+    .setImage(ytThumb(latest.videoId))
+    .setDescription(
+      ts
+        ? `Neu bei **JP Performance** – veröffentlicht <t:${ts}:R>.\n\n▶️ ${latest.url}`
+        : `Neu bei **JP Performance**!\n\n▶️ ${latest.url}`
+    )
+    .setFooter({ text: 'YouTube Alert (RSS)' })
+    .setTimestamp(new Date());
+
+  const content = pingRoleId
+    ? `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!`
+    : null;
+
+  await alertsChan.send({ content, embeds: [embed] });
+
+  // Cache aktualisieren
+  last.latestId = latest.videoId;
+  await writeLast(last);
+
+  return true;
+}
+
+// Slash Command
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('update-yt')
     .setDescription('Postet sofort das neueste YouTube-Video (RSS)'),
+
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const channelId = process.env.YOUTUBE_CHANNEL_ID; // UC...
+    const channelId = process.env.YOUTUBE_CHANNEL_ID;
     const alertChannelId = process.env.ALERT_CHANNEL_ID;
     const pingRoleId = process.env.PING_ROLE_ID || null;
 
@@ -58,38 +109,13 @@ module.exports = {
       return interaction.editReply('❌ Channel-ID oder ALERT_CHANNEL_ID fehlt.');
     }
 
-    const latest = await fetchLatestEntry(channelId);
-    if (!latest) return interaction.editReply('❌ Kein Video gefunden.');
+    const ok = await postLatestVideo(interaction.client, {
+      channelId,
+      alertChannelId,
+      pingRoleId,
+      manual: true,
+    });
 
-    const ts = latest.publishedIso
-      ? Math.floor(new Date(latest.publishedIso).getTime() / 1000)
-      : null;
-
-    const embed = new EmbedBuilder()
-      .setColor(0xff0000)
-      .setTitle(latest.title)
-      .setURL(latest.url)
-      .setImage(ytThumb(latest.videoId))
-      .setDescription(
-        ts
-          ? `Neu bei **JP Performance** – veröffentlicht <t:${ts}:R>.\n\n▶️ ${latest.url}`
-          : `Neu bei **JP Performance**!\n\n▶️ ${latest.url}`
-      )
-      .setFooter({ text: 'YouTube Alert (RSS)' })
-      .setTimestamp(new Date());
-
-    const alertsChan = await interaction.client.channels.fetch(alertChannelId);
-
-    const content = pingRoleId
-      ? `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!`
-      : null;
-
-    await alertsChan.send({ content, embeds: [embed] });
-
-    const last = await readLast();
-    last.latestId = latest.videoId;
-    await writeLast(last);
-
-    await interaction.editReply('✅ Neueste Video wurde gepostet (RSS)!');
+    await interaction.editReply(ok ? '✅ Neueste Video wurde gepostet!' : 'ℹ️ Kein neues Video.');
   },
 };
