@@ -4,7 +4,6 @@ const fs = require('fs/promises');
 const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
 
-// Pfad für Cache
 const LAST_FILE = path.join(process.cwd(), 'data', 'youtube_last.json');
 
 async function readLast() {
@@ -40,43 +39,68 @@ async function fetchLatestEntry(channelId) {
   const entry = data.feed?.entry?.[0] || data.feed?.entry;
   if (!entry) return null;
 
-  const videoId = entry['yt:videoId'];
-  const title = entry.title;
-  const urlVideo = entry.link?.["@_href"] || `https://www.youtube.com/watch?v=${videoId}`;
-  const publishedIso = entry.published;
-
-  return { videoId, title, url: urlVideo, publishedIso };
+  return {
+    videoId: entry['yt:videoId'],
+    title: entry.title,
+    url: entry.link?.["@_href"] || `https://www.youtube.com/watch?v=${entry['yt:videoId']}`,
+    publishedIso: entry.published
+  };
 }
 
-/**
- * Startet den YouTube-Alert-Poller über RSS-Feed.
- * @param {import('discord.js').Client} client
- */
-async function startYouTubeAlerts(client, config = {}) {
+async function createEmbed(latest, pingRoleId) {
+  const ts = latest.publishedIso
+    ? Math.floor(new Date(latest.publishedIso).getTime() / 1000)
+    : null;
+
+  const embed = new EmbedBuilder()
+    .setColor(0xff0000)
+    .setTitle(latest.title)
+    .setURL(latest.url)
+    .setImage(ytThumb(latest.videoId))
+    .setDescription(
+      ts
+        ? `Neu bei **JP Performance** – veröffentlicht <t:${ts}:R>.\n\n▶️ ${latest.url}`
+        : `Neu bei **JP Performance**!\n\n▶️ ${latest.url}`
+    )
+    .setFooter({ text: 'YouTube Alert (RSS)' })
+    .setTimestamp(new Date());
+
+  const content = pingRoleId
+    ? `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!`
+    : null;
+
+  return { content, embed };
+}
+
+function createChecker(client, config) {
   const channelId = config.channelId || process.env.YOUTUBE_CHANNEL_ID;
   const alertChannelId = config.alertChannelId || process.env.ALERT_CHANNEL_ID;
   const pingRoleId = config.pingRoleId || process.env.PING_ROLE_ID || null;
-  const intervalMinutes = Number(config.intervalMinutes || process.env.INTERVAL_MINUTES || 5);
-
-  if (!channelId || !alertChannelId) {
-    console.error('❌ YouTubeAlerts: fehlende Variablen (YOUTUBE_CHANNEL_ID, ALERT_CHANNEL_ID)');
-    return;
-  }
 
   let alertsChan = null;
-  try {
-    alertsChan = await client.channels.fetch(alertChannelId);
-  } catch {
-    alertsChan = client.channels.cache.get(alertChannelId) || null;
-  }
-  if (!alertsChan) {
-    console.error('❌ YouTubeAlerts: alertChannelId nicht gefunden oder keine Rechte.');
-    return;
+  let last = null;
+
+  async function init() {
+    if (!alertsChan) {
+      try {
+        alertsChan = await client.channels.fetch(alertChannelId);
+      } catch {
+        alertsChan = client.channels.cache.get(alertChannelId) || null;
+      }
+    }
+    if (!alertsChan) {
+      console.error('❌ YouTubeAlerts: alertChannelId nicht gefunden oder keine Rechte.');
+      return false;
+    }
+    if (!last) {
+      last = await readLast();
+    }
+    return true;
   }
 
-  const last = await readLast();
+  async function checkOnce(manual = false) {
+    if (!(await init())) return;
 
-  async function checkOnce() {
     try {
       const latest = await fetchLatestEntry(channelId);
       if (!latest) return;
@@ -84,46 +108,42 @@ async function startYouTubeAlerts(client, config = {}) {
       if (!last.latestId) {
         last.latestId = latest.videoId;
         await writeLast(last);
+        if (manual) {
+          await alertsChan.send("ℹ️ Kein gespeichertes Video vorhanden – Cache gesetzt.");
+        }
         return;
       }
 
       if (last.latestId !== latest.videoId) {
-        const ts = latest.publishedIso
-          ? Math.floor(new Date(latest.publishedIso).getTime() / 1000)
-          : null;
-
-        const embed = new EmbedBuilder()
-          .setColor(0xff0000)
-          .setTitle(latest.title)
-          .setURL(latest.url)
-          .setImage(ytThumb(latest.videoId))
-          .setDescription(
-            ts
-              ? `Neu bei **JP Performance** – veröffentlicht <t:${ts}:R>.\n\n▶️ ${latest.url}`
-              : `Neu bei **JP Performance**!\n\n▶️ ${latest.url}`
-          )
-          .setFooter({ text: 'YouTube Alert (RSS)' })
-          .setTimestamp(new Date());
-
-        const content = pingRoleId
-          ? `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!`
-          : null;
-
+        const { content, embed } = await createEmbed(latest, pingRoleId);
         await alertsChan.send({ content, embeds: [embed] });
 
         last.latestId = latest.videoId;
         await writeLast(last);
+      } else if (manual) {
+        await alertsChan.send("ℹ️ Kein neues Video gefunden.");
       }
     } catch (e) {
       console.error('❌ YouTubeAlerts check failed:', e.message);
+      if (manual && alertsChan) {
+        await alertsChan.send(`❌ Fehler beim Check: ${e.message}`);
+      }
     }
   }
+
+  return { checkOnce };
+}
+
+async function startYouTubeAlerts(client, config = {}) {
+  const intervalMinutes = Number(config.intervalMinutes || process.env.INTERVAL_MINUTES || 5);
+  const { checkOnce } = createChecker(client, config);
 
   await checkOnce();
   const intervalMs = Math.max(1, intervalMinutes) * 60_000;
   setInterval(checkOnce, intervalMs);
 
-  console.log(`✅ YouTube Alerts (RSS) gestartet für Channel ${channelId} (Intervall: ${intervalMinutes}min)`);
+  console.log(`✅ YouTube Alerts gestartet (Intervall: ${intervalMinutes}min)`);
+  return { checkOnce };
 }
 
-module.exports = { startYouTubeAlerts };
+module.exports = { startYouTubeAlerts, createChecker };
