@@ -1,71 +1,38 @@
 // features/levels.js
-const fs = require('fs/promises');
 const path = require('path');
+const fs = require('fs');
+const Database = require('better-sqlite3');
 
 const DATA_DIR = path.join(process.cwd(), 'data');
-const LEVELS_FILE = path.join(DATA_DIR, 'levels.json');
-const REWARDS_FILE = path.join(DATA_DIR, 'level_rewards.json');
+const DB_FILE = path.join(DATA_DIR, 'levels.sqlite');
 
-// In-Memory-Cache
-let db = { }; // { [guildId]: { [userId]: { xp, level, lastLevelUpAt, lastMsgAt } } }
-let rewards = {}; // { [guildId]: { [level]: roleId } }
-let isLoaded = false;
-let saving = false;
-
-// ---------- helpers ----------
-async function ensureDataDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+// Stelle sicher, dass /data existiert
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-async function loadDB() {
-  await ensureDataDir();
-  try {
-    const raw = await fs.readFile(LEVELS_FILE, 'utf8');
-    db = JSON.parse(raw);
-  } catch {
-    db = {};
-  }
+// SQLite DB öffnen
+const db = new Database(DB_FILE);
 
-  try {
-    const rawRewards = await fs.readFile(REWARDS_FILE, 'utf8');
-    rewards = JSON.parse(rawRewards);
-  } catch {
-    // default: leer
-    rewards = {};
-  }
+// Tabelle anlegen falls nicht vorhanden
+db.prepare(`
+CREATE TABLE IF NOT EXISTS levels (
+  guildId TEXT NOT NULL,
+  userId TEXT NOT NULL,
+  xp INTEGER NOT NULL DEFAULT 0,
+  lastLevelUpAt INTEGER DEFAULT 0,
+  name TEXT,
+  PRIMARY KEY (guildId, userId)
+)`).run();
 
-  isLoaded = true;
-}
-
-async function saveDB() {
-  if (saving) return;
-  saving = true;
-  try {
-    await fs.writeFile(LEVELS_FILE, JSON.stringify(db, null, 2), 'utf8');
-  } finally {
-    saving = false;
-  }
-}
-
-function guildBucket(guildId) {
-  if (!db[guildId]) db[guildId] = {};
-  return db[guildId];
-}
-
-function userBucket(guildId, userId) {
-  const g = guildBucket(guildId);
-  if (!g[userId]) g[userId] = { xp: 0, level: 0, lastLevelUpAt: 0, lastMsgAt: 0, name: null };
-  return g[userId];
-}
-
-// XP/Level-Formel (klassisch & fair)
+// --------------------------------------------------
+// Level-Formeln
+// --------------------------------------------------
 function xpForLevel(level) {
-  // z. B. 5 * level^2 + 50 * level + 100
   return Math.floor(5 * level * level + 50 * level + 100);
 }
 
 function totalXpForLevel(level) {
-  // kumuliert bis VOR diesem Level
   let sum = 0;
   for (let i = 0; i < level; i++) sum += xpForLevel(i);
   return sum;
@@ -82,98 +49,83 @@ function levelFromTotalXp(total) {
   return lvl;
 }
 
-// ---------- public API ----------
-async function initLevels() {
-  if (!isLoaded) await loadDB();
-  // Auto-Save alle 30s (robust bei Neustarts)
-  setInterval(saveDB, 30_000).unref?.();
-}
-
-async function addXp({ guild, user, amount, memberNameForCache }) {
-  if (!isLoaded) await initLevels();
+// --------------------------------------------------
+// Public API
+// --------------------------------------------------
+function addXp({ guild, user, amount, memberNameForCache }) {
   if (!guild?.id || !user?.id) return { leveledUp: false };
 
-  const u = userBucket(guild.id, user.id);
-  if (memberNameForCache && !u.name) u.name = memberNameForCache;
+  const row = db.prepare(`SELECT xp FROM levels WHERE guildId=? AND userId=?`)
+    .get(guild.id, user.id);
 
-  const beforeTotal = u.xp;
-  u.xp += amount;
-  const beforeLevel = u.level;
-  const afterLevel = levelFromTotalXp(u.xp);
+  let xp = row ? row.xp : 0;
+  const beforeLevel = levelFromTotalXp(xp);
 
-  let leveledUp = false;
-  if (afterLevel > beforeLevel) {
-    u.level = afterLevel;
-    u.lastLevelUpAt = Date.now();
-    leveledUp = true;
+  xp += amount;
+  const afterLevel = levelFromTotalXp(xp);
+
+  if (row) {
+    db.prepare(`UPDATE levels SET xp=?, name=?, lastLevelUpAt=? WHERE guildId=? AND userId=?`)
+      .run(
+        xp,
+        memberNameForCache || row.name,
+        afterLevel > beforeLevel ? Date.now() : row.lastLevelUpAt,
+        guild.id,
+        user.id
+      );
+  } else {
+    db.prepare(`INSERT INTO levels (guildId, userId, xp, lastLevelUpAt, name) VALUES (?,?,?,?,?)`)
+      .run(guild.id, user.id, xp, afterLevel > beforeLevel ? Date.now() : 0, memberNameForCache || null);
   }
 
-  await saveDB();
-  return { leveledUp, beforeTotal, afterTotal: u.xp, level: u.level };
+  return { leveledUp: afterLevel > beforeLevel, level: afterLevel, xp };
 }
 
 function getUser(guildId, userId) {
-  if (!isLoaded) return null;
-  const u = db[guildId]?.[userId] || null;
-  if (!u) return null;
+  const row = db.prepare(`SELECT * FROM levels WHERE guildId=? AND userId=?`).get(guildId, userId);
+  if (!row) return null;
 
-  const level = levelFromTotalXp(u.xp);
-  const xpIntoLevel = u.xp - totalXpForLevel(level);
+  const level = levelFromTotalXp(row.xp);
+  const xpIntoLevel = row.xp - totalXpForLevel(level);
   const xpNeed = xpForLevel(level);
-  const xpToNext = xpNeed - xpIntoLevel;
 
   return {
-    xp: u.xp,
+    xp: row.xp,
     level,
     xpIntoLevel,
     xpNeed,
-    xpToNext,
-    lastLevelUpAt: u.lastLevelUpAt || 0,
-    name: u.name || null,
+    xpToNext: xpNeed - xpIntoLevel,
+    lastLevelUpAt: row.lastLevelUpAt,
+    name: row.name,
   };
 }
 
 function setUserNameCache(guildId, userId, name) {
-  const u = userBucket(guildId, userId);
-  u.name = name;
+  const row = db.prepare(`SELECT xp FROM levels WHERE guildId=? AND userId=?`).get(guildId, userId);
+  if (row) {
+    db.prepare(`UPDATE levels SET name=? WHERE guildId=? AND userId=?`).run(name, guildId, userId);
+  } else {
+    db.prepare(`INSERT INTO levels (guildId, userId, xp, lastLevelUpAt, name) VALUES (?,?,?,?,?)`)
+      .run(guildId, userId, 0, 0, name);
+  }
 }
 
 function getLeaderboard(guildId, limit = 10) {
-  const g = db[guildId] || {};
-  const arr = Object.entries(g).map(([uid, rec]) => ({
-    userId: uid,
-    name: rec.name || null,
-    xp: rec.xp,
-    level: levelFromTotalXp(rec.xp),
+  const rows = db.prepare(`SELECT * FROM levels WHERE guildId=? ORDER BY xp DESC LIMIT ?`).all(guildId, limit);
+  return rows.map(r => ({
+    userId: r.userId,
+    name: r.name,
+    xp: r.xp,
+    level: levelFromTotalXp(r.xp),
   }));
-  arr.sort((a, b) => b.xp - a.xp);
-  return arr.slice(0, Math.min(25, Math.max(1, limit)));
 }
 
-async function maybeGiveLevelRole(member) {
-  // rewards[guildId] = { "5": "roleId", "10": "roleId" ... }
-  const map = rewards[member.guild.id];
-  if (!map) return null;
-
-  const u = getUser(member.guild.id, member.id);
-  if (!u) return null;
-
-  const roleId = map[String(u.level)];
-  if (!roleId) return null;
-
-  const role = member.guild.roles.cache.get(roleId) || await member.guild.roles.fetch(roleId).catch(() => null);
-  if (!role) return null;
-
-  // Nur geben, wenn noch nicht vorhanden
-  if (!member.roles.cache.has(roleId)) {
-    await member.roles.add(roleId).catch(() => null);
-    return role;
-  }
+// Dummy für Kompatibilität (Rollensystem später machbar mit extra Tabelle)
+async function maybeGiveLevelRole() {
   return null;
 }
 
 module.exports = {
-  initLevels,
   addXp,
   getUser,
   getLeaderboard,
@@ -181,6 +133,5 @@ module.exports = {
   xpForLevel,
   totalXpForLevel,
   levelFromTotalXp,
-  maybeGiveLevelRole,
-  REWARDS_FILE,
+  maybeGiveLevelRole
 };
