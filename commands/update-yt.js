@@ -7,14 +7,17 @@ module.exports = {
         .setDescription('Prüft manuell auf ein neues YouTube Video und postet es sofort, falls vorhanden.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator), // Nur Admins
 
-    async execute(interaction, client) {
+    async execute(interaction) {
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            // Admin-Check (Fallback, falls die SlashCommand-Permission nicht greift)
+            // Admin-Check
             if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
                 return await interaction.editReply('❌ Du musst Admin sein, um diesen Befehl zu nutzen.');
             }
+
+            // Hier den Client aus interaction holen
+            const client = interaction.client;
 
             const ytCfg = {
                 channelId: process.env.YOUTUBE_CHANNEL_ID,
