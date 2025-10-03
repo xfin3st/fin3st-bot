@@ -10,16 +10,26 @@ services:
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - NODE_ENV=production
-    # Für persistente Daten (falls benötigt)
     volumes:
       - ./data:/app/data
-    # Leistungsoptimierungen
     mem_limit: 512m
     cpus: 1
     healthcheck:
       disable: true
+    networks:
+      - botnet
 
-# Netzwerk konfigurieren (nicht notwendig, aber gut für Erweiterungen)
+  frontend:
+    image: nginx:latest
+    container_name: discord-frontend
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    networks:
+      - botnet
+
 networks:
-  default:
+  botnet:
     name: discord-bot-network
