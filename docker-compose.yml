@@ -20,7 +20,7 @@ services:
     networks:
       - botnet
     ports:
-      - "3001:3000"   # <--- Host-Port 3001 → Container-Port 3000
+      - "3010:3000"   # <--- Host-Port 3001 → Container-Port 3000
 
   frontend:
     image: nginx:latest
