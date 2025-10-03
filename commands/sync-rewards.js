@@ -1,12 +1,16 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { getUser, getAllRewards } = require('../features/levels');
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('sync-rewards')
     .setDescription('Synchronisiert alle Level-Rollen mit den aktuellen Rewards.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) // nur Admins dürfen
-    .setDMPermission(false), // kein DM-Befehl, nur auf Servern
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDMPermission(false),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
@@ -27,6 +31,7 @@ module.exports = {
           try {
             await member.roles.add(reward.roleId);
             applied++;
+            await sleep(1000); // 1 Sekunde Pause pro Rolle → verhindert Spam
           } catch (e) {
             console.error(`❌ Fehler bei Rolle für ${member.user.tag}:`, e);
           }
