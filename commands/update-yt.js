@@ -1,121 +1,29 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { readFile, writeFile, mkdir } = require('fs/promises');
-const path = require('path');
-const { XMLParser } = require('fast-xml-parser');
+const { SlashCommandBuilder } = require('discord.js');
+const { createChecker } = require('../features/youtubeAlerts');
 
-const LAST_FILE = path.join(process.cwd(), 'data', 'youtube_last.json');
-
-// Cache lesen
-async function readLast() {
-  try {
-    const txt = await readFile(LAST_FILE, 'utf8');
-    return JSON.parse(txt);
-  } catch {
-    return {};
-  }
-}
-
-// Cache schreiben
-async function writeLast(obj) {
-  await mkdir(path.dirname(LAST_FILE), { recursive: true });
-  await writeFile(LAST_FILE, JSON.stringify(obj, null, 2), 'utf8');
-}
-
-// Thumbnail-URL bauen
-function ytThumb(videoId) {
-  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-}
-
-// Letztes Video aus YouTube-RSS holen
-async function fetchLatestEntry(channelId) {
-  const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
-  const res = await fetch(url, { headers: { 'User-Agent': 'DiscordBot/1.0' } });
-  if (!res.ok) throw new Error(`YouTube RSS fetch failed: ${res.status}`);
-  const xml = await res.text();
-
-  const parser = new XMLParser({ ignoreAttributes: false });
-  const data = parser.parse(xml);
-
-  const entry = data.feed?.entry?.[0] || data.feed?.entry;
-  if (!entry) return null;
-
-  return {
-    videoId: entry['yt:videoId'],
-    title: entry.title,
-    url: entry.link?.["@_href"] || `https://www.youtube.com/watch?v=${entry['yt:videoId']}`,
-    publishedIso: entry.published,
-  };
-}
-
-// Embed + Nachricht posten
-async function postLatestVideo(client, { channelId, alertChannelId, pingRoleId, manual = false }) {
-  const alertsChan = await client.channels.fetch(alertChannelId);
-  const last = await readLast();
-  const latest = await fetchLatestEntry(channelId);
-
-  if (!latest) {
-    if (manual) await alertsChan.send('❌ Kein Video gefunden.');
-    return false;
-  }
-
-  // Wenn kein neues Video & manueller Check → Info schicken
-  if (last.latestId === latest.videoId) {
-    if (manual) await alertsChan.send('ℹ️ Kein neues Video.');
-    return false;
-  }
-
-  const ts = latest.publishedIso ? Math.floor(new Date(latest.publishedIso).getTime() / 1000) : null;
-
-  const embed = new EmbedBuilder()
-    .setColor(0xff0000)
-    .setTitle(latest.title)
-    .setURL(latest.url)
-    .setImage(ytThumb(latest.videoId))
-    .setDescription(
-      ts
-        ? `Neu bei **JP Performance** – veröffentlicht <t:${ts}:R>.\n\n▶️ ${latest.url}`
-        : `Neu bei **JP Performance**!\n\n▶️ ${latest.url}`
-    )
-    .setFooter({ text: 'YouTube Alert (RSS)' })
-    .setTimestamp(new Date());
-
-  const content = pingRoleId
-    ? `<@&${pingRoleId}> 🎬 **${latest.title}** ist online!`
-    : null;
-
-  await alertsChan.send({ content, embeds: [embed] });
-
-  // Cache aktualisieren
-  last.latestId = latest.videoId;
-  await writeLast(last);
-
-  return true;
-}
-
-// Slash Command
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('update-yt')
-    .setDescription('Postet sofort das neueste YouTube-Video (RSS)'),
+    data: new SlashCommandBuilder()
+        .setName('update-yt')
+        .setDescription('Prüft manuell auf ein neues YouTube Video und postet es sofort, falls vorhanden.'),
 
-  async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    async execute(interaction, client) {
+        await interaction.deferReply({ ephemeral: true });
 
-    const channelId = process.env.YOUTUBE_CHANNEL_ID;
-    const alertChannelId = process.env.ALERT_CHANNEL_ID;
-    const pingRoleId = process.env.PING_ROLE_ID || null;
+        try {
+            const ytCfg = {
+                channelId: process.env.YOUTUBE_CHANNEL_ID,
+                alertChannelId: process.env.ALERT_CHANNEL_ID,
+                pingRoleId: process.env.PING_ROLE_ID || null
+            };
 
-    if (!channelId || !alertChannelId) {
-      return interaction.editReply('❌ Channel-ID oder ALERT_CHANNEL_ID fehlt.');
+            const { checkOnce } = createChecker(client, ytCfg);
+
+            await checkOnce(true); // true = manueller Modus (gibt Rückmeldung im Channel)
+
+            await interaction.editReply('✅ YouTube-Check abgeschlossen.');
+        } catch (error) {
+            console.error('❌ Fehler bei /update-yt:', error);
+            await interaction.editReply('❌ Fehler beim YouTube-Check: ' + error.message);
+        }
     }
-
-    const ok = await postLatestVideo(interaction.client, {
-      channelId,
-      alertChannelId,
-      pingRoleId,
-      manual: true,
-    });
-
-    await interaction.editReply(ok ? '✅ Neueste Video wurde gepostet!' : 'ℹ️ Kein neues Video.');
-  },
 };
