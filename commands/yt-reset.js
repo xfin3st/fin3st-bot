@@ -1,45 +1,28 @@
-const { SlashCommandBuilder } = require('discord.js');
-const fs = require('fs');
+const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const fs = require('fs/promises');
 const path = require('path');
 
 const LAST_FILE = path.join(process.cwd(), 'data', 'youtube_last.json');
 
-// Nur für dich → deine Discord-ID hier eintragen
-const ADMIN_ID = '278927889406099457';
-
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('yt-reset')
-    .setDescription('Setzt den YouTube-Video-Cache zurück (nur Admin)'), 
+    data: new SlashCommandBuilder()
+        .setName('yt-reset')
+        .setDescription('Löscht den gespeicherten YouTube-Cache. Das nächste Video wird neu gepostet.')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator), // Nur Admins
 
-  async execute(interaction) {
-    // Prüfen, ob der User der Admin ist
-    if (interaction.user.id !== ADMIN_ID) {
-      return interaction.reply({
-        content: '❌ Du darfst diesen Befehl nicht benutzen.',
-        ephemeral: true, // nur der User sieht die Nachricht
-      });
-    }
+    async execute(interaction) {
+        await interaction.deferReply({ ephemeral: true });
 
-    try {
-      if (fs.existsSync(LAST_FILE)) {
-        fs.unlinkSync(LAST_FILE);
-        await interaction.reply({
-          content: '✅ YouTube-Cache wurde zurückgesetzt. Das nächste Video wird neu gepostet.',
-          ephemeral: true,
-        });
-      } else {
-        await interaction.reply({
-          content: 'ℹ️ Es gibt aktuell keine youtube_last.json.',
-          ephemeral: true,
-        });
-      }
-    } catch (err) {
-      console.error('❌ Fehler beim Löschen von youtube_last.json:', err);
-      await interaction.reply({
-        content: '❌ Fehler beim Zurücksetzen der Datei.',
-        ephemeral: true,
-      });
+        try {
+            if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
+                return await interaction.editReply('❌ Du musst Admin sein, um diesen Befehl zu nutzen.');
+            }
+
+            await fs.rm(LAST_FILE, { force: true });
+            await interaction.editReply('♻️ YouTube-Cache zurückgesetzt. Beim nächsten Check wird das aktuelle Video neu gepostet.');
+        } catch (error) {
+            console.error('❌ Fehler bei /yt-reset:', error);
+            await interaction.editReply('❌ Fehler beim Zurücksetzen des YouTube-Caches: ' + error.message);
+        }
     }
-  },
 };
