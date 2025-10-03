@@ -184,3 +184,6 @@ process.on('SIGTERM', () => {
     client.destroy();
     process.exit(0);
 });
+
+// Dashboard starten (Express + OAuth2)
+require('./dashboard');
