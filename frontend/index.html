@@ -114,8 +114,11 @@
   <footer>© fin3st • Dashboard v1</footer>
 
   <script>
+    // API Base auf Port 3010 festlegen
+    const API_BASE = "http://217.154.251.115:3010";
+
     async function api(path, opts = {}) {
-      const res = await fetch(path, opts);
+      const res = await fetch(API_BASE + path, opts);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     }
