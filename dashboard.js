@@ -15,10 +15,6 @@ app.use(session({
   saveUninitialized: false,
 }));
 
-// (Optional hinter Reverse Proxy wie Nginx/Traefik)
-// app.set('trust proxy', 1);
-// app.use(session({ cookie: { secure: true, sameSite: 'lax' }, ... }))
-
 // -------- Passport --------
 app.use(passport.initialize());
 app.use(passport.session());
@@ -56,10 +52,9 @@ function isGuildAdmin(discordProfile) {
   const g = discordProfile.guilds?.find(g => g.id === process.env.GUILD_ID);
   if (!g) return false;
   try {
-    const perms = BigInt(g.permissions); // permissions ist oft ein String
+    const perms = BigInt(g.permissions);
     return (perms & ADMIN) === ADMIN;
   } catch {
-    // Fallback
     const permsNum = Number(g.permissions || 0);
     return (permsNum & 0x8) === 0x8;
   }
@@ -84,7 +79,6 @@ app.use((req, res, next) => {
 // -------- API --------
 app.use(express.json());
 
-// Profil (für Header/Avatar im Frontend)
 app.get('/api/me', checkAuth, (req, res) => {
   const u = req.user;
   const id = u.id;
@@ -122,7 +116,7 @@ app.post('/api/rewards', checkAuth, (req, res) => {
 });
 
 // -------- Start --------
-const PORT = Number(process.env.DASHBOARD_PORT || 3000);
+const PORT = Number(process.env.DASHBOARD_PORT || 3010);
 app.listen(PORT, () => {
   console.log(`🌐 Dashboard läuft auf http://localhost:${PORT}`);
 });
