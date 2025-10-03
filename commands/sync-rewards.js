@@ -9,8 +9,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('sync-rewards')
     .setDescription('Synchronisiert alle Level-Rollen mit den aktuellen Rewards.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) // nur Admins
-    .setDMPermission(false), // kein DM-Befehl
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDMPermission(false),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
@@ -21,6 +21,7 @@ module.exports = {
     }
 
     let applied = 0;
+    let skipped = 0;
     let logLines = [];
 
     for (const [id, member] of interaction.guild.members.cache) {
@@ -34,22 +35,29 @@ module.exports = {
             applied++;
             logLines.push(`✅ ${member.user.tag} → <@&${reward.roleId}> (Level ${rec.level})`);
             console.log(`✅ Rolle ${reward.roleId} an ${member.user.tag} vergeben (Level ${rec.level})`);
-            await sleep(1000); // Delay gegen Spam
+            await sleep(1000);
           } catch (e) {
+            skipped++;
             console.error(`❌ Fehler bei Rolle ${reward.roleId} für ${member.user.tag}:`, e.message);
-            logLines.push(`❌ Fehler bei ${member.user.tag} → <@&${reward.roleId}>`);
+            logLines.push(`❌ ${member.user.tag} → <@&${reward.roleId}> (Fehler: ${e.message})`);
           }
         } else if (rec.level >= reward.level) {
+          skipped++;
           console.log(`ℹ️ ${member.user.tag} erfüllt Level ${reward.level}, hat Rolle aber schon oder keine Rechte`);
+          logLines.push(`ℹ️ ${member.user.tag} erfüllt Level ${reward.level}, hat Rolle aber schon oder Bot hat keine Rechte`);
         }
       }
     }
 
-    if (!applied) {
-      return interaction.editReply('ℹ️ Rewards synchronisiert, aber es wurden keine neuen Rollen vergeben.');
+    if (!applied && !skipped) {
+      return interaction.editReply('ℹ️ Rewards synchronisiert, aber es wurden keine Änderungen vorgenommen.');
     }
 
-    const replyMsg = `✅ Rewards synchronisiert. Insgesamt **${applied}** Rollen vergeben:\n\n${logLines.join('\n')}`;
+    const replyMsg = 
+      `✅ Rewards synchronisiert.\n` +
+      `• **${applied}** Rollen vergeben\n` +
+      `• **${skipped}** übersprungen\n\n` +
+      logLines.join('\n');
 
     return interaction.editReply(
       replyMsg.length > 1900 ? replyMsg.slice(0, 1900) + '\n… (gekürzt)' : replyMsg
