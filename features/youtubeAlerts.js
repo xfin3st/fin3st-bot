@@ -1,4 +1,3 @@
-// features/youtubeAlerts.js
 const { EmbedBuilder } = require('discord.js');
 const fs = require('fs/promises');
 const path = require('path');
@@ -76,8 +75,10 @@ function createChecker(client, config) {
   const channelId = config.channelId || process.env.YOUTUBE_CHANNEL_ID;
   const alertChannelId = config.alertChannelId || process.env.ALERT_CHANNEL_ID;
   const pingRoleId = config.pingRoleId || process.env.PING_ROLE_ID || null;
+  const logChannelId = config.logChannelId || process.env.LOG_CHANNEL_ID || null;
 
   let alertsChan = null;
+  let logChan = null;
   let last = null;
 
   async function init() {
@@ -89,13 +90,31 @@ function createChecker(client, config) {
       }
     }
     if (!alertsChan) {
-      console.error('❌ YouTubeAlerts: alertChannelId nicht gefunden oder keine Rechte.');
+      console.error('❌ YouTubeAlerts: alertChannelId nicht gefunden.');
       return false;
     }
+
+    if (logChannelId && !logChan) {
+      try {
+        logChan = await client.channels.fetch(logChannelId);
+      } catch {
+        logChan = client.channels.cache.get(logChannelId) || null;
+      }
+    }
+
     if (!last) {
       last = await readLast();
     }
     return true;
+  }
+
+  async function log(msg) {
+    console.log(msg);
+    if (logChan) {
+      try {
+        await logChan.send(msg);
+      } catch {}
+    }
   }
 
   async function checkOnce(manual = false) {
@@ -107,6 +126,7 @@ function createChecker(client, config) {
 
       if (!last.latestId) {
         last.latestId = latest.videoId;
+        last.lastPostedAt = Date.now();
         await writeLast(last);
         if (manual) {
           await alertsChan.send("ℹ️ Kein gespeichertes Video vorhanden – Cache gesetzt.");
@@ -114,12 +134,26 @@ function createChecker(client, config) {
         return;
       }
 
-      if (last.latestId !== latest.videoId) {
+      // ✅ Doppelte Posts verhindern (innerhalb 10 Min)
+      const alreadyPosted = last.latestId === latest.videoId;
+      const within10min = last.lastPostedAt && (Date.now() - last.lastPostedAt < 10 * 60 * 1000);
+
+      if (alreadyPosted && within10min) {
+        if (manual) {
+          await alertsChan.send("ℹ️ Bereits gepostet, keine Doppelpost erlaubt.");
+        }
+        return;
+      }
+
+      if (!alreadyPosted) {
         const { content, embed } = await createEmbed(latest, pingRoleId);
         await alertsChan.send({ content, embeds: [embed] });
 
         last.latestId = latest.videoId;
+        last.lastPostedAt = Date.now();
         await writeLast(last);
+
+        await log(`✅ Neues Video gepostet: ${latest.title}`);
       } else if (manual) {
         await alertsChan.send("ℹ️ Kein neues Video gefunden.");
       }
@@ -128,6 +162,7 @@ function createChecker(client, config) {
       if (manual && alertsChan) {
         await alertsChan.send(`❌ Fehler beim Check: ${e.message}`);
       }
+      await log(`❌ Fehler beim YouTube-Check: ${e.message}`);
     }
   }
 
