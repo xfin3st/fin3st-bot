@@ -4,7 +4,7 @@ const path = require('path');
 const session = require('express-session');
 const passport = require('passport');
 const DiscordStrategy = require('passport-discord').Strategy;
-const { getLeaderboard, getAllRewards, setLevelReward } = require('./features/levels');
+const { getLeaderboard, getAllRewards, setLevelReward, addXp } = require('./features/levels');
 
 const app = express();
 
@@ -113,6 +113,43 @@ app.post('/api/rewards', checkAuth, (req, res) => {
   if (!level || !roleId) return res.status(400).json({ error: 'Level und roleId erforderlich' });
   setLevelReward(guildId, Number(level), String(roleId));
   res.json({ success: true });
+});
+
+// -------- XP Management --------
+app.post('/api/xp-add', checkAuth, (req, res) => {
+  const guildId = process.env.GUILD_ID;
+  const { userId, amount } = req.body;
+  if (!userId || !amount) return res.status(400).json({ error: 'userId und amount erforderlich' });
+
+  try {
+    const result = addXp({
+      guild: { id: guildId },
+      user: { id: userId },
+      amount: Number(amount),
+      memberNameForCache: null,
+    });
+    res.json({ success: true, result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/xp-remove', checkAuth, (req, res) => {
+  const guildId = process.env.GUILD_ID;
+  const { userId, amount } = req.body;
+  if (!userId || !amount) return res.status(400).json({ error: 'userId und amount erforderlich' });
+
+  try {
+    const result = addXp({
+      guild: { id: guildId },
+      user: { id: userId },
+      amount: -Math.abs(Number(amount)), // immer negativ
+      memberNameForCache: null,
+    });
+    res.json({ success: true, result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // -------- Start --------
