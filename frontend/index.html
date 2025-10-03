@@ -112,7 +112,7 @@
       <section class="card">
         <h2>⚡ XP Verwaltung</h2>
         <div class="form">
-          <input id="xpUser" list="userList" placeholder="Username auswählen…" />
+          <input id="xpUser" list="userList" placeholder="User auswählen…" />
           <datalist id="userList"></datalist>
           <input id="xpAmount" type="number" placeholder="XP Menge" />
           <button id="btnXpAdd">➕ XP hinzufügen</button>
@@ -142,17 +142,20 @@
 
     async function loadLeaderboard() {
       const data = await api('/api/leaderboard');
-      leaderboardCache = data; // speichern für Autocomplete
+      leaderboardCache = data;
       const tbody = document.querySelector('#leaderboard tbody');
       tbody.innerHTML = '';
       const userList = document.getElementById('userList');
       userList.innerHTML = '';
+
       data.forEach((row, i) => {
-        // Leaderboard-Tabelle
+        const displayName = `${row.name || "Unbekannt"} (${row.userId})`;
+
+        // Leaderboard Tabelle
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>#${i + 1}</td>
-          <td>${row.name || row.userId}</td>
+          <td>${displayName}</td>
           <td>${row.level}</td>
           <td>${row.xp}</td>
         `;
@@ -160,7 +163,7 @@
 
         // Autocomplete-Liste
         const option = document.createElement('option');
-        option.value = row.name || row.userId;
+        option.value = displayName;
         option.dataset.id = row.userId;
         userList.appendChild(option);
       });
@@ -194,7 +197,10 @@
 
     function getUserIdFromInput() {
       const inputVal = document.getElementById('xpUser').value.trim();
-      const match = leaderboardCache.find(u => u.name === inputVal || u.userId === inputVal);
+      const match = leaderboardCache.find(u => {
+        const displayName = `${u.name || "Unbekannt"} (${u.userId})`;
+        return inputVal === displayName || inputVal === u.userId;
+      });
       return match ? match.userId : null;
     }
 
