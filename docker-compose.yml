@@ -10,6 +10,7 @@ services:
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - NODE_ENV=production
+      - DASHBOARD_PORT=3000   # <--- Express hört intern auf 3000
     volumes:
       - ./data:/app/data
     mem_limit: 512m
@@ -18,6 +19,8 @@ services:
       disable: true
     networks:
       - botnet
+    ports:
+      - "3001:3000"   # <--- Host-Port 3001 → Container-Port 3000
 
   frontend:
     image: nginx:latest
