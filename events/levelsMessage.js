@@ -22,10 +22,37 @@ module.exports = {
       if (!isAdmin && now - last < COOLDOWN) return;
       client.__lvl_cd.set(key, now);
 
-      // Zufällige XP
+      // Basis-XP
       const XP_MIN = Number(process.env.LEVEL_XP_MIN || 10);
       const XP_MAX = Number(process.env.LEVEL_XP_MAX || 15);
-      const gain = Math.max(XP_MIN, Math.floor(Math.random() * (XP_MAX - XP_MIN + 1)) + XP_MIN);
+      let gain = Math.max(XP_MIN, Math.floor(Math.random() * (XP_MAX - XP_MIN + 1)) + XP_MIN);
+
+      // ----------------------------------------
+      // Multiplikatoren
+      // ----------------------------------------
+      const roleMultipliers = {
+        "ROLE_ID_VIP": 2.0,     // VIP bekommt doppelte XP
+        "ROLE_ID_BOOSTER": 1.5  // Booster 1.5x
+      };
+
+      const channelMultipliers = {
+        "CHANNEL_ID_CHAT": 1.5, // Chat-Channel = 50% mehr XP
+        "CHANNEL_ID_MEMES": 0.5 // Memes nur halbe XP
+      };
+
+      // Rollen-Check
+      for (const [roleId, mult] of Object.entries(roleMultipliers)) {
+        if (message.member.roles.cache.has(roleId)) {
+          gain = Math.round(gain * mult);
+        }
+      }
+
+      // Channel-Check
+      if (channelMultipliers[message.channel.id]) {
+        gain = Math.round(gain * channelMultipliers[message.channel.id]);
+      }
+
+      // ----------------------------------------
 
       const display = message.member?.displayName || message.author.username;
       setUserNameCache(message.guild.id, message.author.id, display);
@@ -45,14 +72,13 @@ module.exports = {
         : message.channel;
 
       if (leveledUp && channelToUse && rec) {
-        // Fortschrittsbalken berechnen
+        // Fortschrittsbalken
         const barLen = 20;
         const filled = Math.round((rec.xpIntoLevel / rec.xpNeed) * barLen);
         const bar = '█'.repeat(filled) + '░'.repeat(barLen - filled);
 
-        // Embed bauen
         const embed = new EmbedBuilder()
-          .setColor(0x3498db) // Blau, kannst du anpassen
+          .setColor(0x3498db)
           .setAuthor({ name: `${display}`, iconURL: message.author.displayAvatarURL() })
           .setTitle(`🎉 Level Up!`)
           .setDescription(
@@ -70,7 +96,7 @@ module.exports = {
         const role = await maybeGiveLevelRole(message.member);
         if (role) {
           const rewardEmbed = new EmbedBuilder()
-            .setColor(0xf1c40f) // Gold
+            .setColor(0xf1c40f)
             .setTitle(`🏅 Neue Rolle freigeschaltet!`)
             .setDescription(`**${display}** hat die Rolle ${role.toString()} erhalten! 🎊`)
             .setTimestamp();
