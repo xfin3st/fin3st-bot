@@ -108,13 +108,22 @@
           <button id="btnAdd">Hinzufügen / Aktualisieren</button>
         </div>
       </section>
+
+      <section class="card">
+        <h2>⚡ XP Verwaltung</h2>
+        <div class="form">
+          <input id="xpUser" type="text" placeholder="User-ID (z. B. 123456...)" />
+          <input id="xpAmount" type="number" placeholder="XP Menge" />
+          <button id="btnXpAdd">➕ XP hinzufügen</button>
+          <button id="btnXpRemove">➖ XP abziehen</button>
+        </div>
+      </section>
     </div>
   </main>
 
   <footer>© fin3st • Dashboard v1</footer>
 
   <script>
-    // API Base auf Port 3010 festlegen
     const API_BASE = "http://217.154.251.115:3010";
 
     async function api(path, opts = {}) {
@@ -171,9 +180,40 @@
       alert('✅ Reward gespeichert.');
     }
 
-    document.getElementById('btnAdd').addEventListener('click', addReward);
+    async function xpAdd() {
+      const userId = document.getElementById('xpUser').value.trim();
+      const amount = Number(document.getElementById('xpAmount').value);
+      if (!userId || !amount) return alert('Bitte User-ID und XP angeben.');
 
-    // Initial laden
+      await api('/api/xp-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, amount })
+      });
+
+      alert('✅ XP hinzugefügt');
+      await loadLeaderboard();
+    }
+
+    async function xpRemove() {
+      const userId = document.getElementById('xpUser').value.trim();
+      const amount = Number(document.getElementById('xpAmount').value);
+      if (!userId || !amount) return alert('Bitte User-ID und XP angeben.');
+
+      await api('/api/xp-remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, amount })
+      });
+
+      alert('✅ XP abgezogen');
+      await loadLeaderboard();
+    }
+
+    document.getElementById('btnAdd').addEventListener('click', addReward);
+    document.getElementById('btnXpAdd').addEventListener('click', xpAdd);
+    document.getElementById('btnXpRemove').addEventListener('click', xpRemove);
+
     (async () => {
       try {
         await loadMe();
