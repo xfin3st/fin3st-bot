@@ -14,7 +14,7 @@ if (!fs.existsSync(DATA_DIR)) {
 // SQLite DB öffnen
 const db = new Database(DB_FILE);
 
-// Tabelle anlegen falls nicht vorhanden
+// Tabelle Levels
 db.prepare(`
 CREATE TABLE IF NOT EXISTS levels (
   guildId TEXT NOT NULL,
@@ -23,6 +23,15 @@ CREATE TABLE IF NOT EXISTS levels (
   lastLevelUpAt INTEGER DEFAULT 0,
   name TEXT,
   PRIMARY KEY (guildId, userId)
+)`).run();
+
+// Tabelle Rewards
+db.prepare(`
+CREATE TABLE IF NOT EXISTS level_rewards (
+  guildId TEXT NOT NULL,
+  level INTEGER NOT NULL,
+  roleId TEXT NOT NULL,
+  PRIMARY KEY (guildId, level)
 )`).run();
 
 // --------------------------------------------------
@@ -50,7 +59,7 @@ function levelFromTotalXp(total) {
 }
 
 // --------------------------------------------------
-// Public API
+// XP Funktionen
 // --------------------------------------------------
 function addXp({ guild, user, amount, memberNameForCache }) {
   if (!guild?.id || !user?.id) return { leveledUp: false };
@@ -120,11 +129,44 @@ function getLeaderboard(guildId, limit = 10) {
   }));
 }
 
-// Dummy für Kompatibilität (Rollensystem später machbar mit extra Tabelle)
-async function maybeGiveLevelRole() {
+// --------------------------------------------------
+// Reward Funktionen
+// --------------------------------------------------
+function setLevelReward(guildId, level, roleId) {
+  db.prepare(`INSERT OR REPLACE INTO level_rewards (guildId, level, roleId) VALUES (?,?,?)`)
+    .run(guildId, level, roleId);
+}
+
+function getLevelReward(guildId, level) {
+  return db.prepare(`SELECT roleId FROM level_rewards WHERE guildId=? AND level=?`)
+    .get(guildId, level);
+}
+
+function getAllRewards(guildId) {
+  return db.prepare(`SELECT level, roleId FROM level_rewards WHERE guildId=? ORDER BY level ASC`)
+    .all(guildId);
+}
+
+async function maybeGiveLevelRole(member) {
+  const u = getUser(member.guild.id, member.id);
+  if (!u) return null;
+
+  const row = getLevelReward(member.guild.id, u.level);
+  if (!row) return null;
+
+  const role = member.guild.roles.cache.get(row.roleId) || await member.guild.roles.fetch(row.roleId).catch(() => null);
+  if (!role) return null;
+
+  if (!member.roles.cache.has(row.roleId)) {
+    await member.roles.add(row.roleId).catch(() => null);
+    return role;
+  }
   return null;
 }
 
+// --------------------------------------------------
+// Exports
+// --------------------------------------------------
 module.exports = {
   addXp,
   getUser,
@@ -133,5 +175,8 @@ module.exports = {
   xpForLevel,
   totalXpForLevel,
   levelFromTotalXp,
-  maybeGiveLevelRole
+  maybeGiveLevelRole,
+  setLevelReward,
+  getLevelReward,
+  getAllRewards
 };
