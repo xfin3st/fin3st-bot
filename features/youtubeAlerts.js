@@ -128,9 +128,18 @@ function createChecker(client, config) {
         last.latestId = latest.videoId;
         last.lastPostedAt = Date.now();
         await writeLast(last);
-        if (manual) {
-          await alertsChan.send("ℹ️ Kein gespeichertes Video vorhanden – Cache gesetzt.");
+
+        if (process.env.POST_ON_FIRST_RUN === 'true') {
+          const { content, embed } = await createEmbed(latest, pingRoleId);
+          await alertsChan.send({ content, embeds: [embed] });
+          await log(`✅ Erstes Video direkt gepostet: ${latest.title}`);
+        } else {
+          if (manual) {
+            await alertsChan.send("ℹ️ Kein gespeichertes Video vorhanden – Cache gesetzt.");
+          }
+          await log(`ℹ️ Erstes Video nur als Cache gesetzt: ${latest.title}`);
         }
+
         return;
       }
 
