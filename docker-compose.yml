@@ -24,7 +24,7 @@ services:
     container_name: discord-frontend
     restart: unless-stopped
     volumes:
-      - ./frontend:/usr/share/nginx/html:ro
+      - /var/lib/docker/volumes/portainer_data/_data/compose/22/frontend:/usr/share/nginx/html:ro
     ports:
       - "3000:80"
     networks:
